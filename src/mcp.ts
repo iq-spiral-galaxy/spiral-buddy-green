@@ -248,7 +248,7 @@ async function main() {
           repo_name: z
             .string()
             .describe(
-              `${org}의 레포 이름 (예: 'redis-deep-dive'). spiral_list_roadmaps에 include_available=true로 호출해 정확한 이름 확인.`,
+              `${org}의 레포 이름 (예: 'game-theory-distilled'). spiral_list_roadmaps에 include_available=true로 호출해 정확한 이름 확인.`,
             ),
         },
       },
@@ -319,7 +319,7 @@ async function main() {
         roadmap_id: z
           .string()
           .describe(
-            "spiral_list_roadmaps에서 얻은 로드맵 id (예: 'transaction-mvcc' 또는 'spring ecosystem/spring-core-deep-dive/transaction-mvcc')",
+            "spiral_list_roadmaps에서 얻은 로드맵 id (예: 'nash-equilibrium' 또는 'rules of the game/game-theory-distilled/nash-equilibrium')",
           ),
       },
     },
