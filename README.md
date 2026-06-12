@@ -14,9 +14,9 @@
 
 ## 🟢 Green이 다루는 것
 
-철학 · 윤리 · 의사결정 · 인간관계 · 삶의 기술 같은 **실천적 지혜(practical wisdom)** 영역을 나선형으로 반복 학습합니다. 개발 학습용 [🔵 Blue](https://github.com/iq-spiral-galaxy/spiral-buddy-blue)의 검증된 인프라(자동 업데이트 · 세션 영속화 · 8섹션 노트 파이프라인)를 그대로 물려받은 형제 앱이라 **같은 머신에 Blue와 공존**할 수 있습니다 (포트 · 설정 · 노트 폴더 모두 분리).
+돈 · 사람 · 제도 · 역사 — 세상이 작동하는 메커니즘을 판단 규칙으로 증류하는 **실천적 지혜(phronesis)** 영역을 나선형으로 반복 학습합니다. 개발 학습용 [🔵 Blue](https://github.com/iq-spiral-galaxy/spiral-buddy-blue)의 검증된 인프라(자동 업데이트 · 세션 영속화 · 8섹션 노트 파이프라인)를 그대로 물려받은 형제 앱이라 **같은 머신에 Blue와 공존**할 수 있습니다 (포트 · 설정 · 노트 폴더 모두 분리).
 
-> 📦 초기 버전은 **Local 로드맵**(내 폴더 트리)으로 시작합니다. 실천적 지혜 전용 curated 콘텐츠 org는 준비 중.
+> 📚 학습 콘텐츠는 [**IQ Phronesis Lab**](https://github.com/iq-phronesis-lab) — *"Distill, don't collect"*. 6-레이어 스택 31개 레포를 앱에서 한 번에 받을 수 있습니다.
 
 ---
 
@@ -86,7 +86,9 @@ chmod +x ~/SpiralBuddyGreen.AppImage
 ## ✨ 주요 기능
 
 ### 🗺️ 로드맵 + 챕터 학습 흐름
-- **로컬 디렉토리** (사용자 폴더 트리) 기반 로드맵 — README 안의 마크다운 링크 등장 순서를 sub-roadmap 학습 순서로 사용 (번호 prefix 없어도 OK)
+- **로컬 디렉토리** (사용자 폴더 트리) + **GitHub Curated** ([`iq-phronesis-lab`](https://github.com/iq-phronesis-lab) 31개 distilled 레포) — 두 source 공존
+- **6-레이어 hierarchy** — Thinking Tools · Money · People · Rules of the Game · Reading the World · Synthesis
+- README 안의 마크다운 링크 등장 순서를 sub-roadmap 학습 순서로 사용 (번호 prefix 없어도 OK)
 - 멀티 워크스페이스 — 여러 학습 컨텍스트를 한 vault의 별도 폴더로 분리 (이름·경로 중복 자동 차단)
 
 ### 🧭 4단 계층 사이드바
@@ -138,6 +140,27 @@ frontmatter도 정리됨: `repo` → `roadmap` → `chapter` → `depth` → `da
 
 ---
 
+## 📚 IQ Phronesis Lab 학습 자료 — 6개 레이어 / 31개 레포
+
+설정 모달에서 한 번에 받기. 레이어별 또는 코스 프리셋으로 선택 가능 — **이미 받은 레포는 자동 skip (incremental)**.
+
+| Order | 레이어 | 내용 / 레포 수 |
+|---|---|---|
+| 1 | 🧠 **Thinking Tools** (L0) | 확률 · 결정 · 멘탈모델 · 편향 · 통계 — 모든 판단의 운영체제 (5) |
+| 2 | 💰 **Money** (L1) | 금리 · 재무제표 · 유닛 이코노믹스 · 밸류에이션 · 거시 사이클 · 시장 (7) |
+| 3 | 🧲 **People** (L2) | 설득 · 포지셔닝 · 그로스 · 가격 · 카피 · 협상 (6) |
+| 4 | ⚖️ **Rules of the Game** (L3) | 미시경제 · 게임이론 · 인센티브 설계 · 창업자 법무 · 전략과 해자 (5) |
+| 5 | 📜 **Reading the World** (L4) | 경제사 · 기업 흥망 · 기술 확산 · 지정학 (4) |
+| 99 | 🧬 **Synthesis** (L5) | 인센티브 · 복리 · 피드백 루프 · 레버리지 — 레이어 횡단 (4) |
+
+**코스 프리셋** (Setup wizard + 설정 모달 둘 다):
+- 🧠 **사고 도구부터** — Thinking Tools (5 repos, 추천 시작점)
+- 🚀 **창업가 코스** — Thinking Tools · Money · People · Rules (23 repos)
+- 📈 **투자자 코스** — Thinking Tools · Money · Rules · Reading the World (21 repos)
+- 🧬 **전체 · 나선형 완주** — 6개 레이어 전부 (31 repos)
+
+---
+
 ## 🚀 시작하기
 
 ### 1. 다운로드 후 첫 실행
@@ -148,7 +171,7 @@ frontmatter도 정리됨: `repo` → `roadmap` → `chapter` → `depth` → `da
 
 1. **AI API Key 입력** — 현재 Anthropic 모델 지원, [console.anthropic.com](https://console.anthropic.com/)에서 발급한 `sk-ant-...` 키
 2. **노트 보관함 폴더 선택** — 노트가 저장될 폴더 (Obsidian vault 사용 시 자동 감지)
-3. *(선택)* **학습 자료 폴더 지정** — 실천적 지혜 로드맵을 담은 로컬 디렉토리
+3. *(선택)* **코스 프리셋으로 한 번에 받기** — 위 4종 중 하나 클릭 → 폴더 지정 → incremental git clone
 
 ### 3. 학습 시작
 
@@ -197,6 +220,7 @@ pnpm electron:build:linux  # Linux AppImage
 ANTHROPIC_API_KEY=sk-ant-...
 SPIRAL_VAULT_PATH=/Users/you/Documents/MyNotes
 SPIRAL_ROADMAP_ROOT=/path/to/your/roadmaps   # 선택
+SPIRAL_CURATED_ORG=iq-phronesis-lab          # 선택
 SPIRAL_MODEL=claude-sonnet-4-6               # 선택
 ```
 
@@ -261,7 +285,7 @@ client/                ─ 브라우저 SPA (vanilla JS + ESM)
 electron/              ─ Electron main · preload · setup wizard
 docs/                  ─ phase별 spec
 scripts/               ─ 통합 테스트, 일회성 도구
-data/curated-domains.json     ─ curated 도메인 hierarchy (실천적 지혜용 재작성 예정)
+data/curated-domains.json     ─ iq-phronesis-lab 6-레이어 hierarchy + 코스 프리셋
 ```
 
 ---

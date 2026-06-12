@@ -81,7 +81,7 @@ function displayWorkspaceName(nameOrPath) {
   const raw = String(nameOrPath ?? "").trim();
   const base = raw ? path.basename(raw) : "";
   const normalized = (base || raw).toLowerCase().replace(/[\s_-]+/g, "-");
-  if (normalized === "iq-dev-lab") return "IQ Dev Lab";
+  if (normalized === "iq-phronesis-lab") return "IQ Phronesis Lab";
   return raw;
 }
 
@@ -164,7 +164,7 @@ function migrateConfig(raw) {
     roadmapRoot: raw.roadmapRoot ?? null,
     vaultSubDir: "spiral-buddy-green",
     source: "legacy",
-    categoriesOrg: raw.curatedOrg ?? "iq-dev-lab",
+    categoriesOrg: raw.curatedOrg ?? "iq-phronesis-lab",
   };
   return ensureSonnetDefault({
     anthropicApiKey: raw.anthropicApiKey,
@@ -173,7 +173,7 @@ function migrateConfig(raw) {
     model: raw.model,
     maxTokens: raw.maxTokens,
     githubToken: raw.githubToken,
-    curatedOrg: raw.curatedOrg ?? "iq-dev-lab",
+    curatedOrg: raw.curatedOrg ?? "iq-phronesis-lab",
     activeWorkspaceId: ws.id,
     workspaces: [ws],
   });
@@ -391,7 +391,7 @@ async function startServerInProcess(cfg) {
   process.env.NO_OPEN = "1";
   if (ws?.roadmapRoot) process.env.SPIRAL_ROADMAP_ROOT = ws.roadmapRoot;
   if (ws?.vaultSubDir) process.env.SPIRAL_VAULT_SUBDIR = ws.vaultSubDir;
-  // categoriesOrg가 있으면 curated org를 그걸로 (iq-dev-lab 매핑용)
+  // categoriesOrg가 있으면 curated org를 그걸로 (iq-phronesis-lab 매핑용)
   const curatedOrg = ws?.categoriesOrg ?? cfg.curatedOrg;
   if (curatedOrg) process.env.SPIRAL_CURATED_ORG = curatedOrg;
   if (cfg.githubToken) process.env.SPIRAL_GITHUB_TOKEN = cfg.githubToken;
@@ -442,7 +442,7 @@ function createSetupWindow() {
     width: 600,
     height: 640,
     title: "Spiral Buddy Green — 초기 설정",
-    backgroundColor: "#090c12",
+    backgroundColor: "#08120c",
     icon: path.join(__dirname, "build", "icon.png"),
     webPreferences: {
       preload: path.join(__dirname, "preload.cjs"),
@@ -468,7 +468,7 @@ async function createMainWindow() {
     minWidth: 800,
     minHeight: 600,
     title: "Spiral Buddy Green",
-    backgroundColor: "#090c12",
+    backgroundColor: "#08120c",
     icon: path.join(__dirname, "build", "icon.png"),
     webPreferences: {
       preload: path.join(__dirname, "preload.cjs"),
@@ -608,7 +608,7 @@ ipcMain.handle("setup:validate-and-save", async (_e, input) => {
     model: input.model ?? null,
     maxTokens: input.maxTokens ?? null,
     githubToken: input.githubToken ?? null,
-    curatedOrg: "iq-dev-lab",
+    curatedOrg: "iq-phronesis-lab",
     activeWorkspaceId: "default",
     workspaces: [
       {
@@ -617,7 +617,7 @@ ipcMain.handle("setup:validate-and-save", async (_e, input) => {
         roadmapRoot: input.roadmapRoot ?? null,
         vaultSubDir: "spiral-buddy-green",
         source: input.source ?? "setup",
-        categoriesOrg: "iq-dev-lab",
+        categoriesOrg: "iq-phronesis-lab",
       },
     ],
   };
@@ -1189,7 +1189,7 @@ ipcMain.handle("settings:get", () => {
 });
 
 /**
- * 초기 setup wizard를 다시 띄움. 사용자가 처음 설치 시 iq-dev-lab 받기를
+ * 초기 setup wizard를 다시 띄움. 사용자가 처음 설치 시 iq-phronesis-lab 받기를
  * 깜박했거나 다른 옵션을 다시 시도하고 싶을 때.
  * 메인 윈도우는 그대로 두고 setup window만 별도 모달처럼 띄움.
  */
@@ -1442,10 +1442,10 @@ ipcMain.handle("settings:add-workspace", async (event, args) => {
     vaultSubDir,
     source: sourceKind === "git" ? "git-clone" : "manual-dir",
     sourceUrl: args.gitUrl ?? null,
-    // iq-dev-lab 카테고리는 자동 적용. 다른 레포면 카테고리 없음.
+    // iq-phronesis-lab 카테고리는 자동 적용. 다른 레포면 카테고리 없음.
     categoriesOrg:
-      args.gitUrl?.includes("iq-dev-lab") || roadmapRoot.includes("iq-dev-lab")
-        ? "iq-dev-lab"
+      args.gitUrl?.includes("iq-phronesis-lab") || roadmapRoot.includes("iq-phronesis-lab")
+        ? "iq-phronesis-lab"
         : null,
   };
   cfg.workspaces.push(ws);
@@ -1454,9 +1454,9 @@ ipcMain.handle("settings:add-workspace", async (event, args) => {
   return { ok: true, workspace: ws };
 });
 
-// ─── iq-dev-lab 38개 레포 자동 다운로드 ──────────────────────
+// ─── iq-phronesis-lab 31개 레포 자동 다운로드 ──────────────────────
 
-const CURATED_ORG = "iq-dev-lab";
+const CURATED_ORG = "iq-phronesis-lab";
 
 function fetchOrgRepos(org) {
   return new Promise((resolve, reject) => {
@@ -1543,7 +1543,7 @@ function cloneRepo(parentDir, repo, depth = 1) {
 
 ipcMain.handle("setup:pick-parent-dir", async () => {
   const result = await dialog.showOpenDialog({
-    title: "iq-dev-lab을 받을 부모 디렉토리 선택",
+    title: "iq-phronesis-lab을 받을 부모 디렉토리 선택",
     properties: ["openDirectory", "createDirectory"],
     defaultPath: path.join(os.homedir(), "Documents"),
     buttonLabel: "이 폴더에 받기",

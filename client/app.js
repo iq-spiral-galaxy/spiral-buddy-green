@@ -159,8 +159,8 @@ function displayWorkspaceName(workspace) {
     .filter(Boolean)
     .pop()
     ?.toLowerCase();
-  if (normalized === "iq-dev-lab" || rootBase === "iq-dev-lab") {
-    return "IQ Dev Lab";
+  if (normalized === "iq-phronesis-lab" || rootBase === "iq-phronesis-lab") {
+    return "IQ Phronesis Lab";
   }
   return rawName || "Workspace";
 }
@@ -2652,7 +2652,7 @@ async function submitAddWorkspace() {
 }
 
 /**
- * 설정 모달 안에서 iq-dev-lab 38개를 한 번에 받기 + 워크스페이스로 자동 등록.
+ * 설정 모달 안에서 iq-phronesis-lab 31개를 한 번에 받기 + 워크스페이스로 자동 등록.
  * setup wizard 흐름과 동일한 IPC를 재사용한다.
  */
 // ──────────────────────────────────────────────────────────
@@ -2669,7 +2669,7 @@ const _curatedState = {
 const CURATED_PARENT_KEY = "spiral-buddy:curated-parent";
 
 // v0.5.55 — 활성 워크스페이스의 roadmapRoot 부모 디렉토리 반환.
-// roadmapRoot가 "/Users/x/spiral/iq-dev-lab"이면 부모는 "/Users/x/spiral".
+// roadmapRoot가 "/Users/x/spiral/iq-phronesis-lab"이면 부모는 "/Users/x/spiral".
 // curated install은 parentDir 안에 <org>/<repo> 형태로 설치됨.
 function _activeWorkspaceParentDir() {
   if (!_settingsCache?.workspaces) return null;
@@ -2941,11 +2941,11 @@ async function runCuratedInstall(repoNames, label) {
     if (!matches && window.spiralSettings) {
       if (
         confirm(
-          `iq-dev-lab을 워크스페이스로 등록할까요?\n${targetDir}\n(이미 등록되어 있다면 패스하세요)`,
+          `iq-phronesis-lab을 워크스페이스로 등록할까요?\n${targetDir}\n(이미 등록되어 있다면 패스하세요)`,
         )
       ) {
         const wsRes = await window.spiralSettings.addWorkspace({
-          name: "iq-dev-lab",
+          name: "iq-phronesis-lab",
           sourceKind: "dir",
           localPath: targetDir,
         });

@@ -96,7 +96,7 @@ export function loadConfig(): Config {
   const curatedDisabled = process.env.SPIRAL_DISABLE_CURATED === "1";
   const curatedOrg = curatedDisabled
     ? null
-    : process.env.SPIRAL_CURATED_ORG?.trim() || "iq-dev-lab";
+    : process.env.SPIRAL_CURATED_ORG?.trim() || "iq-phronesis-lab";
   const githubToken = process.env.SPIRAL_GITHUB_TOKEN?.trim() || null;
 
   return {

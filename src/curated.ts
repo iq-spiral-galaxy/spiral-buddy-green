@@ -25,7 +25,7 @@ const META_FILE = path.join(PKG_ROOT, ".cache", "curated-meta.json");
 const API_CACHE_TTL_MS = 60 * 60 * 1000; // 1시간
 
 export interface CuratedRepoInfo {
-  /** GitHub 레포 full name (e.g. "iq-dev-lab/redis-deep-dive") */
+  /** GitHub 레포 full name (e.g. "iq-phronesis-lab/redis-deep-dive") */
   fullName: string;
   /** 짧은 이름 (e.g. "redis-deep-dive") */
   name: string;

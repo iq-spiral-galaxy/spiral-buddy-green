@@ -112,7 +112,7 @@ async function main() {
       description:
         "사용 가능한 모든 학습 로드맵을 두 가지 소스에서 통합 반환합니다:\n" +
         "1. **Local** — SPIRAL_ROADMAP_ROOT 아래에서 자동 탐지된 로드맵 (사용자의 로컬 자료)\n" +
-        "2. **Curated** — GitHub 조직(예: iq-dev-lab)의 public 레포 중 이미 설치된 것\n\n" +
+        "2. **Curated** — GitHub 조직(예: iq-phronesis-lab)의 public 레포 중 이미 설치된 것\n\n" +
         "어떤 로드맵으로 학습할지 사용자가 정하지 않았다면 이 도구를 먼저 호출하고 결과를 마크다운 표 그대로 보여주세요. " +
         "Curated 레포 중 아직 설치되지 않은 것을 보려면 `include_available=true`로 호출하세요 — 사용자가 '받기/install' 의사를 표하면 `spiral_install_curated`로 클론할 수 있습니다. " +
         "각 로드맵의 id는 후속 도구의 roadmap_id 인자로 사용합니다. " +
