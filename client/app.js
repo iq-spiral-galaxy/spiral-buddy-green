@@ -5428,8 +5428,38 @@ async function discardPausedSession(id) {
   setTimeout(() => setStatus(""), 1500);
 }
 
+// v0.4.1 — 판단 규칙 가드. 대화에 판단 규칙이 아직 안 나온 채 저장하면
+// 노트의 '판단 규칙' 섹션이 placeholder로 비게 됨 → 저장 직전에 압축
+// 한 턴을 제안 (세션당 1회만, 스킵 가능).
+function shouldOfferRuleDistill() {
+  if (!state.session) return false;
+  if (state._ruleGuardOfferedFor === state.session.id) return false;
+  const msgs = state.messages ?? [];
+  // 실질적 대화가 있었을 때만 (사용자 발화 2턴 이상)
+  const userTurns = msgs.filter((m) => m.role === "user").length;
+  if (userTurns < 2) return false;
+  return !msgs.some((m) => String(m.content ?? "").includes("판단 규칙"));
+}
+
 async function endSession() {
   if (!state.session || state.pending) return;
+
+  if (shouldOfferRuleDistill()) {
+    state._ruleGuardOfferedFor = state.session.id;
+    const distill = confirm(
+      "이번 대화에서 '판단 규칙'이 아직 안 나왔어요.\n" +
+        "지금 저장하면 노트의 판단 규칙 섹션이 비어요.\n\n" +
+        "확인 — 버디와 판단 규칙으로 압축한 뒤 저장\n" +
+        "취소 — 그대로 저장",
+    );
+    if (distill) {
+      sendMessage(
+        '마무리하기 전에 오늘 다룬 내용을 판단 규칙 1~2개로 같이 압축해보자. "X 상황에서 Y가 보이면 Z한다" 형태로 내가 먼저 만들어볼 수 있게 이끌어줘.',
+      );
+      return;
+    }
+  }
+
   if (!confirm("세션 종료하고 옵시디언에 노트 생성할까?")) return;
   const endingSessionId = state.session.id;
 
