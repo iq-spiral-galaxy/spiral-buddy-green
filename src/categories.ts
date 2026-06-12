@@ -259,13 +259,14 @@ function normalizeCategoryName(s: string): string {
 
 /**
  * 레포 이름 정규화 (매칭용).
- * "-deep-dive" suffix는 학습 자료에서 흔하므로 옵셔널 처리:
- * - "architecture-patterns-deep-dive" (GitHub repo / JSON)
- * - "architecture-patterns" (사용자가 카테고리 폴더에 줄여서 둔 디렉토리)
+ * "-distilled"(iq-phronesis-lab) / "-deep-dive"(iq-dev-lab 계열) suffix는
+ * 학습 자료에서 흔하므로 옵셔널 처리:
+ * - "game-theory-distilled" (GitHub repo / JSON)
+ * - "game-theory" (사용자가 카테고리 폴더에 줄여서 둔 디렉토리)
  * 둘 다 동일 ID로 매칭됨.
  */
 export function normalizeRepoName(s: string): string {
-  return s.toLowerCase().replace(/-deep-dive$/, "").trim();
+  return s.toLowerCase().replace(/-(deep-dive|distilled)$/, "").trim();
 }
 
 /**

@@ -24,7 +24,7 @@ Principles:
 - If no prior notes exist → mode "first-time", pick the earliest chapter.
 - If the user has notes on a topic at depth 1 and seems uncertain about parts of it → mode "deeper-layer", recommend the SAME chapter again (deeper).
 - If the user has solid depth-1 notes on previous chapters → mode "next-chapter", advance.
-- If two distant chapters connect to recent learning → mode "cross-link".
+- If two distant chapters connect to recent learning → mode "cross-link". Recurring base models (인센티브, 복리, 피드백 루프, 레버리지) appearing across different layers are the strongest cross-link signal.
 - Choose recommendedChapterId from the provided list. Return null only if nothing fits.
 - "relatedChapterIds" must reference items from the provided notes.
 - Keep rationale under 280 chars, written in Korean if the notes are Korean, else English.`;

@@ -44,6 +44,7 @@ Rules:
 - Don't fabricate content that wasn't in the conversation.
 - If a section has nothing real to put in it, write a single italicized line like "_이번 세션에서 다루지 않음._".
 - Tags should reflect topic, not meta ("kelly-criterion", "principal-agent", not "learning", "study").
+- If the session substantially engaged one of the recurring base models, ALSO include that as a tag: "incentives", "compounding", "feedback-loops", "leverage". These power cross-layer recall in later sessions.
 - **Summary**: write a clean topical summary. Do NOT start with the chapter number (e.g., write "Fixtures & SetUp 첫 스파이럴…" not "05. Fixtures & SetUp 첫 스파이럴…"). The chapter title is recorded separately.`;
 
 /** 8섹션 헤딩 — save_note 검증/보충 시 사용 */
