@@ -2,7 +2,7 @@
 
 > AI 버디와 함께하는 **나선형 학습** 데스크톱 앱 — **실천적 지혜 학습용 버디**.
 > [iq-spiral-galaxy](https://github.com/iq-spiral-galaxy) 패밀리: 🔴 Red(AI/수학) · 🟢 Green(실천적 지혜) · 🔵 Blue(개발)
-> 로드맵 따라가며 학습 → 버디(AI)와 Socratic 대화 → **8섹션 구조 노트**로 노트 보관함에 자동 축적 → 다음 세션 진입 시 이전 노트가 컨텍스트로 자동 합류.
+> 로드맵 따라가며 학습 → 버디(AI)와 Socratic 대화로 **메커니즘 → 반례 → 판단 규칙** 증류 → **8섹션 구조 노트**로 자동 축적 → 다음 세션에 이전 노트가 컨텍스트로 합류 → 규칙은 **판단 규칙 인덱스**에 쌓임.
 
 <p align="center">
   <a href="https://github.com/iq-spiral-galaxy/spiral-buddy-green/releases/latest"><img alt="latest release" src="https://img.shields.io/github/v/release/iq-spiral-galaxy/spiral-buddy-green?display_name=tag&style=flat-square"></a>
@@ -85,9 +85,23 @@ chmod +x ~/SpiralBuddyGreen.AppImage
 
 ## ✨ 주요 기능
 
+### 🧭 판단 루프 — Green의 학습 사이클
+
+> *"결정을 바꾸지 못하는 지식은 잡학이다."* — 모든 기능이 이 한 문장을 향합니다.
+
+| 단계 | 기능 |
+|---|---|
+| 챕터 고르기 | 💡 **미리보기 카드**가 "이 챕터로 **내릴 수 있는 판단**"을 미리 보여줌 |
+| 세션 | 버디가 **메커니즘 → 반례 → 판단 규칙** 순서로 파고드는 Socratic 대화 |
+| 저장 직전 | **세션 종료 가드** — 판단 규칙 없이 끝내려 하면 압축 한 턴 제안 |
+| 노트 | "판단 규칙" 섹션 + 본질 모델(인센티브·복리·피드백 루프·레버리지) **자동 태깅** |
+| 축적 | **판단 규칙 인덱스** — 모든 노트의 규칙만 모은 개인 의사결정 핸드북 |
+| 회수 | **Synthesis 모드** — L5 챕터 진입 시 같은 본질 모델의 과거 노트를 자동 소환 |
+
 ### 🗺️ 로드맵 + 챕터 학습 흐름
 - **로컬 디렉토리** (사용자 폴더 트리) + **GitHub Curated** ([`iq-phronesis-lab`](https://github.com/iq-phronesis-lab) 31개 distilled 레포) — 두 source 공존
 - **6-레이어 hierarchy** — Thinking Tools · Money · People · Rules of the Game · Reading the World · Synthesis
+- **💡 챕터 미리보기 카드** — 챕터 옆 💡 클릭 → 한 줄 요약 · 핵심 질문 2~3개 · 선수 지식 · **🧭 내릴 수 있는 판단** (Haiku로 생성, 본문 변경 전까지 영구 캐시)
 - README 안의 마크다운 링크 등장 순서를 sub-roadmap 학습 순서로 사용 (번호 prefix 없어도 OK)
 - 멀티 워크스페이스 — 여러 학습 컨텍스트를 한 vault의 별도 폴더로 분리 (이름·경로 중복 자동 차단)
 
@@ -99,8 +113,11 @@ chmod +x ~/SpiralBuddyGreen.AppImage
 - **레포별 progress bar** + d1/d2/d3 배지
 
 ### 💬 버디와의 Socratic 학습 세션
-- depth 1 (첫 학습) → depth 2 (복습) → depth 3 (심화) — 같은 챕터를 나선형으로 반복
-- 이전 노트가 자동으로 새 세션 컨텍스트에 포함
+- **depth 사다리** — 같은 챕터를 나선형으로 반복하되 단계마다 목표가 다름:
+  **d1** 원리/메커니즘 직관 세우기 → **d2** 반례·경계 조건 사냥 → **d3+** 판단 규칙 압축 + 의사결정 시나리오 적용
+- 이전 노트가 자동으로 새 세션 컨텍스트에 포함 — d2부터는 "헷갈렸던 지점"이 진입점
+- **Synthesis 모드** — L5(-everywhere) 챕터 진입 시 같은 본질 모델 태그가 붙은 **다른 레이어의 노트 최대 4개**를 자동 소환. "지난주에 가격 차별에서 만난 인센티브, 여기서 또 나왔지?"를 실제 내 노트 근거로
+- **세션 종료 가드** — 판단 규칙 없이 End & Save 하면 *"압축하고 끝낼래?"* 한 턴 제안 (세션당 1회, 스킵 가능)
 - **스트리밍 응답** — 실시간 토큰 단위 표시
 - **모델 선택** — Sonnet 4.6 (기본·추천) / Opus / Haiku 등
 - **세션 Pause / Resume** — 일시정지 후 사이드바 PAUSED 섹션에서 멀티 세션 관리, 클릭으로 컨텍스트 유지하며 재개
@@ -126,6 +143,7 @@ chmod +x ~/SpiralBuddyGreen.AppImage
 여기에 🔍 **학습 중 찾아본 표현** — Look-up 카드들이 callout 블록으로 자동 첨부 (Obsidian 호환)
 
 frontmatter도 정리됨: `repo` → `roadmap` → `chapter` → `depth` → `date` → `tags` → `summary` 순.
+세션이 본질 모델을 다뤘으면 `incentives` / `compounding` / `feedback-loops` / `leverage` 태그가 **자동 부여** — Synthesis 모드의 횡단 소환이 이 태그를 사용합니다.
 
 ### 🎯 깊이 있는 학습 도구
 - **Quiz 단계별 난이도** — Quiz 버튼을 누를수록 어려워짐 (원리 확인 → 적용 → 반례·경계조건 → 판단 시나리오)
@@ -184,7 +202,7 @@ frontmatter도 정리됨: `repo` → `roadmap` → `chapter` → `depth` → `da
 
 ### 3. 학습 시작
 
-좌측 사이드바에서 챕터 선택 → 버디와 대화 → `End & Save` 클릭 → 노트 보관함에 자동 생성.
+좌측 사이드바에서 챕터 선택 (💡로 미리보기) → 버디와 대화 → `End & Save` → 노트 보관함에 자동 생성, 판단 규칙은 🧭 **판단 규칙 인덱스**에 축적.
 
 ---
 
