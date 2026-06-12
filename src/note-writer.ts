@@ -17,17 +17,20 @@ The "body" must follow this exact structure with these EXACT headings:
 ## 한 줄 요약
 (2-3 lines max)
 
-## 핵심 개념
-(bullet list of the core concepts the learner engaged with this session)
+## 핵심 원리 (메커니즘)
+(bullet list of the mechanisms / causal chains the learner engaged with this session — the "왜 그렇게 작동하는가", not just topic names)
 
 ## 직관 / 비유
 (the analogies or mental models that landed for the learner — pulled from the actual conversation)
 
-## 짚고 넘어간 예제
-(concrete examples discussed — code snippets if any, formatted in fenced blocks)
+## 사례 / 반례
+(concrete cases discussed AND the counterexamples that drew the principle's boundary — "언제 무너지는가" included)
 
 ## 헷갈렸던 / 확인이 필요한 지점
 (things the learner got wrong, hesitated on, or asked twice — be specific, this is the most valuable section)
+
+## 판단 규칙
+(decision rules the learner distilled this session, in "X 상황에서 Y가 보이면 Z한다" form — only rules that actually emerged in conversation; this is what makes the note actionable)
 
 ## 이전 학습과의 연결
 (how this builds on or connects to prior spiral-buddy notes — reference them as [[note-title]] if relevant)
@@ -40,16 +43,17 @@ Rules:
 - Be ruthlessly concrete. Quote the learner's own framings when possible.
 - Don't fabricate content that wasn't in the conversation.
 - If a section has nothing real to put in it, write a single italicized line like "_이번 세션에서 다루지 않음._".
-- Tags should reflect topic, not meta ("redis-memory", "cow-semantics", not "learning", "study").
+- Tags should reflect topic, not meta ("kelly-criterion", "principal-agent", not "learning", "study").
 - **Summary**: write a clean topical summary. Do NOT start with the chapter number (e.g., write "Fixtures & SetUp 첫 스파이럴…" not "05. Fixtures & SetUp 첫 스파이럴…"). The chapter title is recorded separately.`;
 
 /** 8섹션 헤딩 — save_note 검증/보충 시 사용 */
 export const REQUIRED_SECTIONS = [
   "한 줄 요약",
-  "핵심 개념",
+  "핵심 원리 (메커니즘)",
   "직관 / 비유",
-  "짚고 넘어간 예제",
+  "사례 / 반례",
   "헷갈렸던 / 확인이 필요한 지점",
+  "판단 규칙",
   "이전 학습과의 연결",
   "다음에 볼 것",
 ] as const;

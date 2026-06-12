@@ -917,8 +917,8 @@ export function createApi(config: Config) {
       deep:
         "사용자가 학습 대화 중 모르는 개념을 깊이 있게 알고 싶어한다. " +
         "다음 구조로 마크다운 답변:\n" +
-        "## 한 줄 정의\n## 동작 원리\n## 코드 예시\n## 흔한 함정\n## 관련 개념\n" +
-        "각 섹션 2-4문장 또는 짧은 코드. 한국어. 형식은 정확히 지킬 것.",
+        "## 한 줄 정의\n## 작동 메커니즘\n## 사례\n## 한계 / 무너지는 조건\n## 관련 개념\n" +
+        "각 섹션 2-4문장. 한국어. 형식은 정확히 지킬 것.",
     };
     const maxTokensByDepth: Record<string, number> = {
       concise: 280,

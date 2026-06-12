@@ -574,7 +574,7 @@ async function main() {
       description:
         "특정 spiral-buddy 노트의 전체 본문(frontmatter 포함)을 반환합니다. " +
         "spiral_list_notes에서 얻은 relativePath를 그대로 넘기세요. " +
-        "cross-link 추론 시 관련 노트의 '핵심 개념', '헷갈렸던 지점' 섹션을 직접 확인하는 용도.",
+        "cross-link 추론 시 관련 노트의 '핵심 원리', '헷갈렸던 지점' 섹션을 직접 확인하는 용도.",
       inputSchema: {
         relative_path: z
           .string()
