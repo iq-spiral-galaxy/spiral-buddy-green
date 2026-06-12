@@ -33,6 +33,8 @@ export interface ChapterPreviewCard {
   keyQuestions: string[];
   /** 이 챕터를 이해하려면 알아야 할 사전 지식 (없으면 null) */
   prerequisites: string | null;
+  /** v0.4.3 — 이 챕터를 소화하면 내릴 수 있게 되는 판단 한 줄 (없으면 null) */
+  decision: string | null;
   /** 생성 당시 챕터 본문의 해시 — 본문 바뀌면 invalidate */
   contentHash: string;
   /** 생성 시점 (ms epoch). LLM ban 변경 없으니 Date.now 사용 OK. */
@@ -51,7 +53,8 @@ JSON으로만 응답. 마크다운 코드 펜스도 쓰지 마.
 {
   "summary": "한 문장. 이 챕터에서 다루는 핵심을 60자 이내로. 예: 'Kelly 기준의 유도 — 왜 풀베팅은 파산인가'",
   "keyQuestions": ["이 챕터를 읽으면 답할 수 있게 되는 핵심 질문 2~3개. 각 80자 이내", "..."],
-  "prerequisites": "이 챕터 이해에 필요한 사전 지식 한 줄. 없거나 자명하면 null"
+  "prerequisites": "이 챕터 이해에 필요한 사전 지식 한 줄. 없거나 자명하면 null",
+  "decision": "이 챕터를 소화하면 내릴 수 있게 되는 실제 판단/결정 한 줄. 80자 이내, '~를 판단할 수 있다' 식. 본문에서 도출이 안 되면 null"
 }
 
 응답 언어는 본문 언어와 맞춤 (한국어 본문 → 한국어 카드).`;
@@ -90,6 +93,8 @@ export async function loadCachedPreview(
     const raw = await fs.readFile(file, "utf-8");
     const card = JSON.parse(raw) as ChapterPreviewCard;
     if (card.contentHash !== expectedContentHash) return null;
+    // v0.4.3 — decision 필드 없는 구버전 캐시는 miss 처리해 재생성
+    if (card.decision === undefined) return null;
     return card;
   } catch {
     return null;
@@ -191,6 +196,12 @@ ${body}`;
       : String(p.prerequisites).trim();
   const prerequisites =
     prereqRaw && prereqRaw.toLowerCase() !== "null" ? prereqRaw : null;
+  const decisionRaw =
+    p.decision === null || p.decision === undefined
+      ? null
+      : String(p.decision).trim();
+  const decision =
+    decisionRaw && decisionRaw.toLowerCase() !== "null" ? decisionRaw : null;
 
   if (!summary) {
     throw new Error("미리보기 결과에 summary가 없음");
@@ -203,6 +214,7 @@ ${body}`;
     summary,
     keyQuestions,
     prerequisites,
+    decision,
     contentHash: computeContentHash(content),
     generatedAt: Date.now(),
     model,

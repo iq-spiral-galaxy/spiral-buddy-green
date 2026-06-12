@@ -2121,11 +2121,15 @@ function _renderChapterAiCardBody(pop, chapter, card) {
   const prereqHtml = card.prerequisites
     ? `<div class="chapter-ai-prereq"><span class="chapter-ai-prereq-label">선수 지식</span> ${escapeHtml(card.prerequisites)}</div>`
     : "";
+  const decisionHtml = card.decision
+    ? `<div class="chapter-ai-decision"><span class="chapter-ai-decision-label">🧭 내릴 수 있는 판단</span> ${escapeHtml(card.decision)}</div>`
+    : "";
 
   body.innerHTML = `
     <div class="chapter-ai-summary">${escapeHtml(card.summary)}</div>
     <div class="chapter-ai-section-label">이 챕터를 읽으면 답할 수 있게 됩니다</div>
     ${questionsHtml}
+    ${decisionHtml}
     ${prereqHtml}
     <div class="chapter-ai-actions">
       <button class="chapter-ai-start-btn" type="button">이 챕터 시작</button>
