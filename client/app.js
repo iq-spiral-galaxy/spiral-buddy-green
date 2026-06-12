@@ -104,6 +104,12 @@ const CATEGORY_ICON_BY_NAME = {
   "cross-platform": "shuffle",
   synthesis: "dna",
   uncategorized: "folder",
+  // v0.2.2 — iq-phronesis-lab 6-레이어 도메인 (도메인 = 카테고리, single-cat)
+  "thinking tools": "brain",
+  money: "coins",
+  people: "users",
+  "rules of the game": "scale",
+  "reading the world": "book",
 };
 
 const ICON_SVG = {
@@ -130,6 +136,12 @@ const ICON_SVG = {
   dna: `<path d="M5 4c14 4 0 12 14 16"/><path d="M19 4c-14 4 0 12 -14 16"/><line x1="7" y1="8" x2="14" y2="8"/><line x1="9" y1="12" x2="15" y2="12"/><line x1="9" y1="16" x2="17" y2="16"/>`,
   // v0.5.55 — Backend 도메인용 wrench
   wrench: `<path d="M14.7 6.3a4.5 4.5 0 0 1 5.6 5.6L18 14l-4-4 0.7-2.1z"/><path d="M14 10l-9 9a2 2 0 0 1-3-3l9-9"/>`,
+  // v0.2.2 — phronesis 레이어 아이콘
+  brain: `<path d="M12 5a2.5 2.5 0 0 0-4.6-1.3A3 3 0 0 0 5 6.6c0 .4.1.8.2 1.1A3 3 0 0 0 4 10a3 3 0 0 0 1 2.2 3 3 0 0 0-.6 1.8 3 3 0 0 0 2.4 2.9A2.7 2.7 0 0 0 9.4 20c1.1 0 2-.6 2.6-1.5Z"/><path d="M12 5a2.5 2.5 0 0 1 4.6-1.3A3 3 0 0 1 19 6.6c0 .4-.1.8-.2 1.1A3 3 0 0 1 20 10a3 3 0 0 1-1 2.2 3 3 0 0 1 .6 1.8 3 3 0 0 1-2.4 2.9 2.7 2.7 0 0 1-2.6 3.1c-1.1 0-2-.6-2.6-1.5Z"/><path d="M12 5v13.5"/>`,
+  coins: `<circle cx="8.5" cy="8.5" r="5.5"/><path d="M16.2 9.4a5.5 5.5 0 1 1-6.8 6.8"/><path d="M6.5 8.5h4"/><path d="M8.5 6.5v4"/>`,
+  users: `<circle cx="9" cy="8" r="3.2"/><path d="M3.5 19.5c.6-3.2 2.8-5 5.5-5s4.9 1.8 5.5 5"/><circle cx="16.8" cy="9" r="2.6"/><path d="M16.6 14.8c2.1.3 3.6 1.9 4.1 4.2"/>`,
+  scale: `<line x1="12" y1="4" x2="12" y2="19"/><path d="M9 20h6"/><line x1="5" y1="7" x2="19" y2="7"/><path d="m5 7-2.1 5.2a2.6 2.6 0 0 0 4.2 0L5 7Z"/><path d="m19 7-2.1 5.2a2.6 2.6 0 0 0 4.2 0L19 7Z"/>`,
+  book: `<path d="M12 6.2C10.2 4.7 7.6 4.2 4 4.2v13.6c3.6 0 6.2.5 8 2 1.8-1.5 4.4-2 8-2V4.2c-3.6 0-6.2.5-8 2Z"/><line x1="12" y1="6.2" x2="12" y2="19.8"/>`,
 };
 
 function svgIcon(name, className = "inline-icon") {
