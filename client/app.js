@@ -159,6 +159,31 @@ function repoIconHtml() {
   return `<span class="repo-icon" aria-hidden="true">${svgIcon("repo", "repo-icon-svg")}</span>`;
 }
 
+// 레포 표시명 (v0.4.4): "-distilled" suffix 제거 + 하이픈→공백 + 단어별 첫글자 대문자.
+// "-everywhere"(Synthesis 레이어)는 suffix 유지.
+// 예: probabilistic-thinking-distilled → Probabilistic Thinking
+//     incentives-everywhere → Incentives Everywhere
+// 내부 키/검색 인덱스/설치 요청은 전부 raw 이름 그대로 — 표시 전용.
+function formatRepoDisplayName(repoName) {
+  const raw = String(repoName ?? "").trim();
+  if (!raw) return raw;
+  return raw
+    .replace(/-distilled$/i, "")
+    .split("-")
+    .filter(Boolean)
+    .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+    .join(" ");
+}
+
+// 로드맵 표시명: 평탄 클론은 로드맵명 == 레포 디렉토리명이라 raw suffix가
+// 그대로 노출됨. 콘텐츠 레포 suffix가 확실할 때만 포맷 (사용자 임의 폴더명 보존).
+function displayRoadmapName(name) {
+  const raw = String(name ?? "");
+  return /-(distilled|everywhere)$/i.test(raw.trim())
+    ? formatRepoDisplayName(raw)
+    : raw;
+}
+
 function groupIconHtml(name) {
   return `<span class="group-icon" aria-hidden="true">${svgIcon(name, "group-icon-svg")}</span>`;
 }
@@ -857,7 +882,7 @@ function renderRoadmapSelector() {
 
   els.roadmapCurrent.innerHTML = `
     <div class="roadmap-current-inner">
-      <span class="roadmap-name">${active ? activeSrc + " " : ""}${escapeHtml(activeName)}</span>
+      <span class="roadmap-name">${active ? activeSrc + " " : ""}${escapeHtml(displayRoadmapName(activeName))}</span>
       ${active ? `<span class="roadmap-progress">${activeProgress}</span>` : ""}
     </div>
     <span class="caret">▼</span>
@@ -873,6 +898,7 @@ function renderRoadmapSelector() {
       r.name ?? "",
       r.category?.name ?? "",
       r.hierarchy?.repo ?? "",
+      formatRepoDisplayName(r.hierarchy?.repo ?? ""),
       r.hierarchy?.sub ?? "",
     ]
       .join(" ")
@@ -1161,7 +1187,7 @@ function renderRoadmapSelector() {
               <button class="${repoClass} ${isFlatActive ? "active" : ""}" ${repoHeaderAttrs}>
                 ${!isSingleFlat ? `<span class="cat-caret">${repoCaret}</span>` : `<span class="cat-caret"> </span>`}
                 ${repoIconHtml()}
-                <span class="repo-name">${escapeHtml(repoName)}</span>
+                <span class="repo-name" title="${escapeAttr(repoName)}">${escapeHtml(formatRepoDisplayName(repoName))}</span>
                 ${repoDepthBadge}
                 <span class="cat-count">${isSingleFlat ? roadmaps[0].chapterCount : roadmaps.length}</span>
               </button>
@@ -1287,7 +1313,7 @@ function renderRoadmapSelector() {
                   const buttonLabel = isInstalling ? "받는 중…" : "📥 받기";
                   return `
                     <div class="curated-available-item">
-                      <div class="curated-available-name">${escapeHtml(repo.name)}</div>
+                      <div class="curated-available-name" title="${escapeAttr(repo.name)}">${escapeHtml(formatRepoDisplayName(repo.name))}</div>
                       ${desc ? `<div class="curated-available-desc">${desc}</div>` : ""}
                       <div class="curated-available-meta">
                         <span>⭐ ${repo.stars}</span>
@@ -1479,7 +1505,7 @@ function roadmapItemHtml(r) {
     r.maxDepth > 0 ? `<span class="depth-pill">d${r.maxDepth}</span>` : "";
   return `
     <button class="roadmap-item ${isActive ? "active" : ""}" data-id="${escapeAttr(r.id)}">
-      <div class="roadmap-item-name">${escapeHtml(r.name)}</div>
+      <div class="roadmap-item-name">${escapeHtml(displayRoadmapName(r.name))}</div>
       <div class="roadmap-item-meta">
         ${depthBadge}
         <span class="roadmap-item-progress">${r.visitedChapters}/${r.chapterCount}</span>
@@ -4296,7 +4322,7 @@ function renderRules(data, query) {
     for (const { entry, items } of blocks) {
       const color = entry.domain?.color ?? "var(--accent)";
       const source = [
-        entry.repo ?? entry.roadmapName,
+        entry.repo ? formatRepoDisplayName(entry.repo) : entry.roadmapName,
         entry.chapter,
         `d${entry.depth}`,
         entry.date,

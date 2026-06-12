@@ -10,6 +10,18 @@ export interface SpiralSuggestion {
   mode: "first-time" | "deeper-layer" | "next-chapter" | "cross-link";
 }
 
+/** 콘텐츠 레포명 표시용: -distilled 제거 + 하이픈→공백 + Title Case (-everywhere는 유지). */
+function displayContentName(name: string): string {
+  const raw = (name ?? "").trim();
+  if (!/-(distilled|everywhere)$/i.test(raw)) return name;
+  return raw
+    .replace(/-distilled$/i, "")
+    .split("-")
+    .filter(Boolean)
+    .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+    .join(" ");
+}
+
 const SUGGEST_SYSTEM = `You analyze a learner's roadmap and their past spiral-buddy notes, then suggest what to study next.
 
 You output STRICT JSON only, no prose, no markdown fences, matching this shape:
@@ -53,7 +65,7 @@ export async function suggestNext(
     const first = chapters[0]!;
     return {
       recommendedChapterId: first.id,
-      rationale: `${roadmap.name} 로드맵의 이전 학습 기록이 없어. 첫 챕터부터 시작하자.`,
+      rationale: `${displayContentName(roadmap.name)} 로드맵의 이전 학습 기록이 없어. 첫 챕터부터 시작하자.`,
       related: [],
       mode: "first-time",
     };
