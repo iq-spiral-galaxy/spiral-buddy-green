@@ -1,6 +1,6 @@
-// 앱 아이콘 생성기:
+// 앱 아이콘 생성기 (Green 버디):
 //   1. 여백이 있는 archimedean spiral 좌표 계산
-//   2. SVG 문자열 생성 (deep navy + violet + warm cyan/orange)
+//   2. SVG 문자열 생성 (deep forest + emerald + warm mint/orange)
 //   3. 1024 PNG 출력 — @resvg/resvg-js가 있으면 사용
 //
 // 출력: electron/build/icon.svg, electron/build/icon.png
@@ -38,12 +38,12 @@ function svg(): string {
   const d = spiralPath();
   return `<?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${SIZE} ${SIZE}" width="${SIZE}" height="${SIZE}">
-  <!-- Spiral Buddy icon: 옵시디언 보라 + 클로드 오렌지 + cyan 나선형 -->
+  <!-- Spiral Buddy Green icon: 딥 포레스트 + 에메랄드 + 클로드 오렌지 + mint 나선형 -->
   <defs>
     <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#263557"/>
-      <stop offset="45%" stop-color="#5f5acb"/>
-      <stop offset="100%" stop-color="#101626"/>
+      <stop offset="0%" stop-color="#1f3a30"/>
+      <stop offset="45%" stop-color="#2f9e74"/>
+      <stop offset="100%" stop-color="#0c1712"/>
     </linearGradient>
     <radialGradient id="glow" cx="58%" cy="62%" r="62%">
       <stop offset="0%"  stop-color="#ffcf9d" stop-opacity="0.46"/>
@@ -52,16 +52,16 @@ function svg(): string {
       <stop offset="100%" stop-color="#cc785c" stop-opacity="0"/>
     </radialGradient>
     <radialGradient id="coolGlow" cx="32%" cy="24%" r="62%">
-      <stop offset="0%" stop-color="#9decff" stop-opacity="0.1"/>
-      <stop offset="58%" stop-color="#9decff" stop-opacity="0.025"/>
-      <stop offset="100%" stop-color="#9decff" stop-opacity="0"/>
+      <stop offset="0%" stop-color="#9dffd2" stop-opacity="0.1"/>
+      <stop offset="58%" stop-color="#9dffd2" stop-opacity="0.025"/>
+      <stop offset="100%" stop-color="#9dffd2" stop-opacity="0"/>
     </radialGradient>
     <linearGradient id="rim" x1="0%" y1="0%" x2="0%" y2="100%">
       <stop offset="0%"  stop-color="#ffffff" stop-opacity="0.24"/>
       <stop offset="40%" stop-color="#ffffff" stop-opacity="0"/>
     </linearGradient>
     <linearGradient id="spiralStroke" x1="18%" y1="4%" x2="83%" y2="96%">
-      <stop offset="0%"   stop-color="#9decff"/>
+      <stop offset="0%"   stop-color="#9dffd2"/>
       <stop offset="42%"  stop-color="#f7fbff"/>
       <stop offset="72%"  stop-color="#ffd49e"/>
       <stop offset="100%" stop-color="#ff875b"/>

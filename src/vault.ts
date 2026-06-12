@@ -26,8 +26,9 @@ export interface SpiralNote {
 }
 
 // 노트 저장 위치 (vault 안의 sub-dir). workspace별로 다른 폴더 사용 가능.
-// env로 주입 가능: 기본 "spiral-buddy", 다른 방은 "spiral-buddy-<id>" 등.
-const SPIRAL_DIR = process.env.SPIRAL_VAULT_SUBDIR?.trim() || "spiral-buddy";
+// env로 주입 가능: 기본 "spiral-buddy-green", 다른 방은 "spiral-buddy-green-<id>" 등.
+// (Blue의 "spiral-buddy"와 분리 — 같은 vault를 쓸 때 노트가 섞이지 않게)
+const SPIRAL_DIR = process.env.SPIRAL_VAULT_SUBDIR?.trim() || "spiral-buddy-green";
 const TRASH_DIR = ".trash";
 
 // v0.5.76 — 매 API 요청(/roadmaps, /chapters, /activity, /history, /search)
@@ -248,8 +249,8 @@ async function updateIndex(
   } catch {
     existing = [
       "---",
-      "title: spiral-buddy index",
-      "generator: iq-spiral-buddy",
+      "title: spiral-buddy-green index",
+      "generator: spiral-buddy-green",
       "---",
       "",
       "# Sessions",

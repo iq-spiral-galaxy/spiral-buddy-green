@@ -1,4 +1,4 @@
-// Spiral Buddy — Electron main process (CommonJS)
+// Spiral Buddy Green — Electron main process (CommonJS)
 //
 // 흐름:
 //  1. app.whenReady → loadConfig (userData/config.json)
@@ -64,7 +64,7 @@ process.on("uncaughtException", (err) => {
     _crashDialogShown = true;
     try {
       dialog.showErrorBox(
-        "Spiral Buddy 오류",
+        "Spiral Buddy Green 오류",
         `예기치 않은 오류가 발생했어요.\n\n${msg.split("\n")[0]}\n\n자세한 내용: ${SERVER_LOG_PATH}`,
       );
     } catch {}
@@ -162,7 +162,7 @@ function migrateConfig(raw) {
       ? displayWorkspaceName(raw.roadmapRoot)
       : "기본 워크스페이스",
     roadmapRoot: raw.roadmapRoot ?? null,
-    vaultSubDir: "spiral-buddy",
+    vaultSubDir: "spiral-buddy-green",
     source: "legacy",
     categoriesOrg: raw.curatedOrg ?? "iq-dev-lab",
   };
@@ -339,10 +339,11 @@ function uniqueId(base, taken) {
 // 폭 등 클라이언트 설정이 전부 초기화됐음 ("화이트 모드로 해놔도
 // 껐다 켜면 다크로 돌아옴" 보고의 근본 원인).
 //
-// 고정 포트(4517)를 우선 시도하고, 점유 시 +1씩 10개까지, 그래도
+// 고정 포트(4557)를 우선 시도하고, 점유 시 +1씩 10개까지, 그래도
 // 안 되면 기존처럼 랜덤. 같은 포트 = 같은 origin = 설정 유지.
-// (CLI 모드 기본 3737과 다른 번호라 dev 서버와 충돌 없음)
-const PREFERRED_PORT = 4517;
+// (CLI 모드 기본 3737, Blue 4517과 다른 번호라 dev 서버/Blue와 충돌 없음
+//  — 같으면 localStorage origin 충돌 + Blue와 동시 실행 불가)
+const PREFERRED_PORT = 4557;
 
 function tryListen(port) {
   return new Promise((resolve) => {
@@ -440,7 +441,7 @@ function createSetupWindow() {
   setupWindow = new BrowserWindow({
     width: 600,
     height: 640,
-    title: "Spiral Buddy — 초기 설정",
+    title: "Spiral Buddy Green — 초기 설정",
     backgroundColor: "#090c12",
     icon: path.join(__dirname, "build", "icon.png"),
     webPreferences: {
@@ -466,7 +467,7 @@ async function createMainWindow() {
     height: 900,
     minWidth: 800,
     minHeight: 600,
-    title: "Spiral Buddy",
+    title: "Spiral Buddy Green",
     backgroundColor: "#090c12",
     icon: path.join(__dirname, "build", "icon.png"),
     webPreferences: {
@@ -492,7 +493,7 @@ async function createMainWindow() {
       buttons: ["취소", "저장 없이 종료"],
       defaultId: 0,
       cancelId: 0,
-      title: "Spiral Buddy",
+      title: "Spiral Buddy Green",
       message: "진행 중인 학습 세션이 있습니다.",
       detail:
         '닫으면 지금까지의 대화가 사라집니다.\n저장하려면 메인 창의 "End & Save"를 먼저 누르세요.',
@@ -523,7 +524,7 @@ async function bootWithConfig(cfg) {
       /* ignore */
     }
     dialog.showErrorBox(
-      "Spiral Buddy — 서버 시작 실패",
+      "Spiral Buddy Green — 서버 시작 실패",
       `서버를 시작할 수 없습니다.\n\n${err?.message ?? err}\n\n로그 파일: ${SERVER_LOG_PATH}`,
     );
     app.quit();
@@ -532,7 +533,7 @@ async function bootWithConfig(cfg) {
   const ready = await waitForServer(serverPort, 8000);
   if (!ready) {
     dialog.showErrorBox(
-      "Spiral Buddy — 서버 시작 실패",
+      "Spiral Buddy Green — 서버 시작 실패",
       `서버가 localhost:${serverPort}에서 응답하지 않습니다.\n\n로그 파일: ${SERVER_LOG_PATH}`,
     );
     app.quit();
@@ -614,7 +615,7 @@ ipcMain.handle("setup:validate-and-save", async (_e, input) => {
         id: "default",
         name: wsName,
         roadmapRoot: input.roadmapRoot ?? null,
-        vaultSubDir: "spiral-buddy",
+        vaultSubDir: "spiral-buddy-green",
         source: input.source ?? "setup",
         categoriesOrg: "iq-dev-lab",
       },
@@ -650,12 +651,10 @@ ipcMain.handle("app:open-external", (_e, url) => {
 // "받기" 누르면 detached bash로 install 스크립트 실행하고 앱 종료.
 // 플랫폼별로 다른 자산 사용: darwin-arm64 / darwin-x64 / win32 / linux
 
-// v0.5.87 — iq-spiral-galaxy org로 이전 + spiral-buddy-blue로 rename.
-// 옛 주소(iq-agent-lab/iq-spiral-buddy)는 GitHub redirect가 살아있어
-// 구버전 클라이언트의 업데이트 체크/다운로드도 계속 동작함.
-// ⚠ 옛 주소에 새 레포를 만들면 redirect가 끊김 — 절대 재사용 금지.
+// Green은 spiral-buddy-blue에서 부트스트랩된 별도 레포 — 업데이트
+// 체크/다운로드는 spiral-buddy-green 릴리즈를 대상으로 함.
 const GH_OWNER = "iq-spiral-galaxy";
-const GH_REPO = "spiral-buddy-blue";
+const GH_REPO = "spiral-buddy-green";
 const APP_VERSION = require("../package.json").version;
 
 function fetchJson(url) {
@@ -665,7 +664,7 @@ function fetchJson(url) {
         url,
         {
           headers: {
-            "User-Agent": `spiral-buddy/${require("../package.json").version}`,
+            "User-Agent": `spiral-buddy-green/${require("../package.json").version}`,
             Accept: "application/vnd.github+json",
           },
         },
@@ -798,48 +797,48 @@ function buildInstallScript(version, logPath) {
   if (platform === "darwin") {
     const dmgName =
       arch === "arm64"
-        ? `Spiral.Buddy-${version}-arm64.dmg`
-        : `Spiral.Buddy-${version}.dmg`;
+        ? `Spiral.Buddy.Green-${version}-arm64.dmg`
+        : `Spiral.Buddy.Green-${version}.dmg`;
     const url = `https://github.com/${GH_OWNER}/${GH_REPO}/releases/download/v${version}/${dmgName}`;
     // 모든 출력을 logPath로 — 디버깅 가능.
     // set -e는 사용 X (한 단계 실패해도 다음 시도하고 마지막에 open). 단계마다 echo로 진행 로깅.
     return `#!/bin/bash
 exec > "${logPath}" 2>&1
-echo "=== Spiral Buddy update start (v${version}) ==="
+echo "=== Spiral Buddy Green update start (v${version}) ==="
 date
 
 echo "-- step 1: quitting current app"
-osascript -e 'tell application "Spiral Buddy" to quit' 2>/dev/null || true
+osascript -e 'tell application "Spiral Buddy Green" to quit' 2>/dev/null || true
 sleep 2.5
 
 echo "-- step 2: downloading dmg from ${url}"
 cd /tmp || exit 1
-if ! curl -fL --retry 3 -o /tmp/spiral.dmg "${url}"; then
+if ! curl -fL --retry 3 -o /tmp/spiral-green.dmg "${url}"; then
   echo "ERROR: download failed"
   exit 1
 fi
 
 echo "-- step 3: mounting dmg"
-if ! hdiutil attach -nobrowse -quiet /tmp/spiral.dmg; then
+if ! hdiutil attach -nobrowse -quiet /tmp/spiral-green.dmg; then
   echo "ERROR: mount failed"
   exit 1
 fi
 
 echo "-- step 4: replacing app in /Applications"
-rm -rf '/Applications/Spiral Buddy.app'
-if ! cp -R "/Volumes/Spiral Buddy ${version}/Spiral Buddy.app" /Applications/; then
+rm -rf '/Applications/Spiral Buddy Green.app'
+if ! cp -R "/Volumes/Spiral Buddy Green ${version}/Spiral Buddy Green.app" /Applications/; then
   echo "ERROR: copy failed — /Applications 권한이 부족할 수 있음"
-  hdiutil detach -quiet "/Volumes/Spiral Buddy ${version}" 2>/dev/null || true
+  hdiutil detach -quiet "/Volumes/Spiral Buddy Green ${version}" 2>/dev/null || true
   exit 1
 fi
 
 echo "-- step 5: unmount + cleanup"
-hdiutil detach -quiet "/Volumes/Spiral Buddy ${version}" 2>/dev/null || true
-xattr -cr '/Applications/Spiral Buddy.app' 2>/dev/null || true
-rm -f /tmp/spiral.dmg
+hdiutil detach -quiet "/Volumes/Spiral Buddy Green ${version}" 2>/dev/null || true
+xattr -cr '/Applications/Spiral Buddy Green.app' 2>/dev/null || true
+rm -f /tmp/spiral-green.dmg
 
 echo "-- step 6: opening updated app"
-open '/Applications/Spiral Buddy.app'
+open '/Applications/Spiral Buddy Green.app'
 echo "=== done ==="
 `;
   }
@@ -917,7 +916,7 @@ function downloadFile(url, dest, onProgress, redirectsLeft = 5) {
   return new Promise((resolve, reject) => {
     const req = https.get(
       url,
-      { headers: { "User-Agent": `spiral-buddy/${APP_VERSION}` } },
+      { headers: { "User-Agent": `spiral-buddy-green/${APP_VERSION}` } },
       (res) => {
         if (
           res.statusCode &&
@@ -987,9 +986,9 @@ ipcMain.handle("app:install-update", async (_e, { version }) => {
   //      — Node https 다운로드는 mark-of-the-web이 안 붙어 SmartScreen 차단 없음
   //   3. 그 후에만 앱 종료. 설치 실패는 v0.5.74 marker가 다음 부팅 때 감지.
   if (process.platform === "win32") {
-    const exeName = `Spiral.Buddy.Setup.${version}.exe`;
+    const exeName = `Spiral.Buddy.Green.Setup.${version}.exe`;
     const url = `https://github.com/${GH_OWNER}/${GH_REPO}/releases/download/v${version}/${exeName}`;
-    const dest = path.join(os.tmpdir(), `spiral-buddy-setup-${version}.exe`);
+    const dest = path.join(os.tmpdir(), `spiral-buddy-green-setup-${version}.exe`);
     const log = (msg) => {
       try {
         fs.appendFileSync(logPath, `[${new Date().toISOString()}] ${msg}\n`);
@@ -1086,7 +1085,7 @@ ipcMain.handle("app:install-update", async (_e, { version }) => {
     // macOS
     const tmpPath = path.join(
       os.tmpdir(),
-      `spiral-buddy-update-${Date.now()}.sh`,
+      `spiral-buddy-green-update-${Date.now()}.sh`,
     );
     fs.writeFileSync(tmpPath, script, { mode: 0o755 });
     // log 파일 미리 만들어 두기
@@ -1340,8 +1339,9 @@ ipcMain.handle("settings:add-workspace", async (event, args) => {
 
   const takenIds = new Set(cfg.workspaces.map((w) => w.id));
   const id = uniqueId(name, takenIds);
-  // 기본 vault sub-dir: spiral-buddy-<id> (default와 안 겹치게)
-  const vaultSubDir = id === "default" ? "spiral-buddy" : `spiral-buddy-${id}`;
+  // 기본 vault sub-dir: spiral-buddy-green-<id> (default와 안 겹치게)
+  const vaultSubDir =
+    id === "default" ? "spiral-buddy-green" : `spiral-buddy-green-${id}`;
 
   let roadmapRoot;
   if (sourceKind === "dir") {
@@ -1362,11 +1362,11 @@ ipcMain.handle("settings:add-workspace", async (event, args) => {
     if (!parsedGitUrl || parsedGitUrl.protocol !== "https:") {
       return { ok: false, error: "https git URL만 지원합니다." };
     }
-    // 기본 클론 위치: <vaultPath>/../iq-spiral-buddy-data/<id>/<repoName>
-    // 또는 사용자가 parentDir 지정 가능
+    // 기본 클론 위치: <vaultPath>/../iq-spiral-buddy-green-data/<id>/<repoName>
+    // 또는 사용자가 parentDir 지정 가능 (Blue의 iq-spiral-buddy-data와 분리)
     const parentDir =
       args.parentDir ||
-      path.join(path.dirname(cfg.vaultPath), "iq-spiral-buddy-data", id);
+      path.join(path.dirname(cfg.vaultPath), "iq-spiral-buddy-green-data", id);
     fs.mkdirSync(parentDir, { recursive: true });
     // repo 이름 추출
     const m = args.gitUrl.match(/\/([^/]+?)(?:\.git)?$/);
@@ -1467,7 +1467,7 @@ function fetchOrgRepos(org) {
           host: "api.github.com",
           path: `/orgs/${org}/repos?per_page=100&page=${page}&type=public`,
           headers: {
-            "User-Agent": "spiral-buddy-setup",
+            "User-Agent": "spiral-buddy-green-setup",
             Accept: "application/vnd.github+json",
           },
         },

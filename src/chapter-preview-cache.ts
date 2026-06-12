@@ -3,7 +3,7 @@
  *
  * 사용자가 사이드바에서 💡 버튼을 누르면 그 챕터의 본문을 Claude(Haiku 4.5)에게
  * 보내 "한 줄 요약 + 핵심 질문 2~3개 + 선수 지식" 형태의 카드를 생성한다.
- * 결과는 vault 안 `spiral-buddy/.preview-cache/<hash>.json`에 저장 — 다음
+ * 결과는 vault 안 `spiral-buddy-green/.preview-cache/<hash>.json`에 저장 — 다음
  * 클릭부터 즉시 표시. 챕터 본문이 바뀌면 contentHash 불일치로 자동 재생성.
  *
  * 명시적 트리거 + 캐시 패턴 — 사용자가 보고 싶은 챕터만 비용 발생, 한 번 생성
@@ -17,7 +17,7 @@ import { type ClaudeClient, completeOnce } from "./claude.js";
 import type { Chapter } from "./roadmap.js";
 
 // vault.ts의 SPIRAL_DIR과 동일 정책 (workspace별 다른 sub-dir 지원).
-const SPIRAL_DIR = process.env.SPIRAL_VAULT_SUBDIR?.trim() || "spiral-buddy";
+const SPIRAL_DIR = process.env.SPIRAL_VAULT_SUBDIR?.trim() || "spiral-buddy-green";
 const PREVIEW_CACHE_DIR = ".preview-cache";
 
 /** Claude로 미리보기 생성할 때 본문 잘림 길이 (안 그러면 너무 길어서 비효율). */

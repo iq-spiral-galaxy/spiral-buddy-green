@@ -2251,7 +2251,7 @@ async function refreshUpdateBanner({ force = false } = {}) {
 
   // releases link 기본값
   const RELEASES_URL =
-    "https://github.com/iq-agent-lab/iq-spiral-buddy/releases/latest";
+    "https://github.com/iq-spiral-galaxy/spiral-buddy-green/releases/latest";
   if (releasesLink) {
     releasesLink.classList.remove("hidden");
     releasesLink.onclick = (e) => {
