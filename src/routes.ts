@@ -1292,7 +1292,41 @@ export function createApi(config: Config) {
       }),
     );
     const depth = priorOnSame.length + 1;
-    const related = priorOnSame.slice(0, 5);
+    let related = priorOnSame.slice(0, 5);
+
+    // v0.4.2 — Synthesis 모드: L5(-everywhere) 챕터 진입 시, 같은 본질
+    // 모델 태그가 붙은 다른 레이어의 노트를 related로 추가 주입.
+    // 레이어 횡단 회수가 Synthesis 레이어의 학습 목표 — 버디가 학습자의
+    // 실제 과거 노트(돈/사람/제도에서 만난 같은 모델)를 들고 시작하게 함.
+    // 태그는 note-writer가 자동 부여 (v0.3.1).
+    const SYNTHESIS_TAG_BY_REPO: Record<string, string> = {
+      "incentives-everywhere": "incentives",
+      "compounding-everywhere": "compounding",
+      "feedback-loops-everywhere": "feedback-loops",
+      "leverage-everywhere": "leverage",
+    };
+    // 평탄 클론("incentives-everywhere/..")과 계층 클론("synthesis/incentives-everywhere/..")
+    // 둘 다 잡기 위해 path segment 전체 + roadmap 이름을 검사.
+    const candidates = [
+      ...roadmap.id.split("/").map((s) => s.trim().toLowerCase()),
+      (roadmap.name ?? "").trim().toLowerCase(),
+    ];
+    const baseModelTag =
+      candidates
+        .map((s) => SYNTHESIS_TAG_BY_REPO[s])
+        .find((t) => t !== undefined) ?? null;
+    if (baseModelTag) {
+      const seen = new Set(related.map((n) => n.filePath));
+      const crossLayer = allNotes
+        .filter(
+          (n) =>
+            !seen.has(n.filePath) &&
+            Array.isArray(n.tags) &&
+            n.tags.includes(baseModelTag),
+        )
+        .slice(0, 4); // allNotes는 date desc 정렬 — 최신 4개
+      related = [...related, ...crossLayer];
+    }
 
     const session = createSession({
       chapter,
