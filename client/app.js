@@ -233,6 +233,14 @@ function cacheEls() {
   els.activitySummary = $("activity-summary");
   els.activityGrid = $("activity-grid");
   els.activityMonthLabels = $("activity-month-labels");
+  // 판단 규칙 인덱스
+  els.rulesOpenBtn = $("rules-open-btn");
+  els.rulesCount = $("rules-count");
+  els.rulesModal = $("rules-modal");
+  els.rulesModalClose = $("rules-modal-close");
+  els.rulesSearch = $("rules-search");
+  els.rulesSummary = $("rules-summary");
+  els.rulesList = $("rules-list");
   // settings / workspace
   els.settingsBtn = $("settings-btn");
   els.settingsModal = $("settings-modal");
@@ -552,6 +560,25 @@ function wireEvents() {
   // 백그라운드로 휴지통 개수 폴링은 안 함 — 사이드바 갱신마다 같이 fetch
   refreshTrashBadge();
   refreshActivityBadge();
+  refreshRulesBadge();
+
+  // 판단 규칙 인덱스
+  if (els.rulesOpenBtn) {
+    els.rulesOpenBtn.addEventListener("click", openRulesModal);
+  }
+  if (els.rulesModalClose) {
+    els.rulesModalClose.addEventListener("click", closeRulesModal);
+  }
+  if (els.rulesModal) {
+    els.rulesModal.addEventListener("click", (e) => {
+      if (e.target === els.rulesModal) closeRulesModal();
+    });
+  }
+  if (els.rulesSearch) {
+    els.rulesSearch.addEventListener("input", () => {
+      renderRules(state._rulesData, els.rulesSearch.value);
+    });
+  }
 
   // 학습 활동 캘린더
   if (els.activityOpenBtn) {
@@ -574,6 +601,9 @@ function wireEvents() {
     }
     if (e.key === "Escape" && els.activityModal && !els.activityModal.classList.contains("hidden")) {
       closeActivityModal();
+    }
+    if (e.key === "Escape" && els.rulesModal && !els.rulesModal.classList.contains("hidden")) {
+      closeRulesModal();
     }
   });
   if (els.searchModal) {
@@ -4167,6 +4197,124 @@ function hideActivityTooltip() {
   _activityTooltip?.classList.remove("visible");
 }
 
+// ──────────────────────────────────────────────────────────
+// 판단 규칙 인덱스 (Green 전용) — vault 노트들의 "## 판단 규칙"
+// 섹션만 모아 레이어별로 보여주는 개인 의사결정 핸드북.
+// ──────────────────────────────────────────────────────────
+
+async function refreshRulesBadge() {
+  if (!els.rulesCount) return;
+  try {
+    const data = await fetch("/api/rules").then((r) => r.json());
+    state._rulesData = data;
+    els.rulesCount.textContent = String(data.ruleCount ?? 0);
+  } catch {
+    els.rulesCount.textContent = "—";
+  }
+}
+
+async function openRulesModal() {
+  if (!els.rulesModal) return;
+  els.rulesModal.classList.remove("hidden");
+  els.rulesModal.setAttribute("aria-hidden", "false");
+  if (els.rulesSearch) els.rulesSearch.value = "";
+  if (els.rulesList) {
+    els.rulesList.innerHTML = `<div class="rules-empty">loading…</div>`;
+  }
+  try {
+    const data = await fetch("/api/rules").then((r) => r.json());
+    state._rulesData = data;
+    if (els.rulesCount) els.rulesCount.textContent = String(data.ruleCount ?? 0);
+    renderRules(data, "");
+    if (els.rulesSearch) els.rulesSearch.focus();
+  } catch (err) {
+    if (els.rulesList) {
+      els.rulesList.innerHTML = `<div class="rules-empty">로드 실패: ${escapeHtml(err.message)}</div>`;
+    }
+  }
+}
+
+function closeRulesModal() {
+  if (!els.rulesModal) return;
+  els.rulesModal.classList.add("hidden");
+  els.rulesModal.setAttribute("aria-hidden", "true");
+}
+
+function renderRules(data, query) {
+  if (!els.rulesList) return;
+  const entries = data?.entries ?? [];
+  const q = (query ?? "").trim().toLowerCase();
+
+  if (!entries.length) {
+    if (els.rulesSummary) els.rulesSummary.textContent = "";
+    els.rulesList.innerHTML = `<div class="rules-empty">아직 모인 판단 규칙이 없어요.<br/>세션을 끝내고 노트를 저장하면, 노트의 "판단 규칙" 섹션이 여기에 쌓여요.</div>`;
+    return;
+  }
+
+  // 필터 — 규칙 텍스트 + 출처(레포/챕터/토픽) 동시 매칭
+  let shownRules = 0;
+  const groups = new Map(); // domain id → { domain, blocks } (entries가 레이어 order로 정렬돼 있어 삽입 순서 유지)
+  for (const e of entries) {
+    const metaText =
+      `${e.repo ?? ""} ${e.chapter ?? ""} ${e.topic ?? ""} ${e.roadmapName ?? ""}`.toLowerCase();
+    const items = q
+      ? e.items.filter(
+          (t) => t.toLowerCase().includes(q) || metaText.includes(q),
+        )
+      : e.items;
+    if (!items.length) continue;
+    shownRules += items.length;
+    const key = e.domain?.id ?? "__none__";
+    if (!groups.has(key)) groups.set(key, { domain: e.domain, blocks: [] });
+    groups.get(key).blocks.push({ entry: e, items });
+  }
+
+  const total = data.ruleCount ?? 0;
+  if (els.rulesSummary) {
+    els.rulesSummary.textContent = q
+      ? `매칭 ${shownRules} / ${total}개`
+      : `노트 ${data.noteCount ?? 0}개 · 규칙 ${total}개`;
+  }
+
+  if (!groups.size) {
+    els.rulesList.innerHTML = `<div class="rules-empty">"${escapeHtml(query)}"에 매칭되는 규칙이 없어요.</div>`;
+    return;
+  }
+
+  const html = [];
+  for (const { domain, blocks } of groups.values()) {
+    const count = blocks.reduce((s, b) => s + b.items.length, 0);
+    html.push(
+      domain
+        ? `<div class="rules-domain-head" style="color:${escapeAttr(domain.color)}">${escapeHtml(domain.emoji)} ${escapeHtml(domain.name)} <span class="rules-domain-count">${count}</span></div>`
+        : `<div class="rules-domain-head">🗂 기타 <span class="rules-domain-count">${count}</span></div>`,
+    );
+    for (const { entry, items } of blocks) {
+      const color = entry.domain?.color ?? "var(--accent)";
+      const source = [
+        entry.repo ?? entry.roadmapName,
+        entry.chapter,
+        `d${entry.depth}`,
+        entry.date,
+      ]
+        .filter(Boolean)
+        .join(" · ");
+      const metaInner = entry.obsidianUri
+        ? `<a href="${escapeAttr(entry.obsidianUri)}" title="옵시디언에서 노트 열기">${escapeHtml(source)} ↗</a>`
+        : escapeHtml(source);
+      for (const item of items) {
+        html.push(
+          `<div class="rule-item" style="border-left-color:${escapeAttr(color)}">` +
+            `<div class="rule-text">${renderMarkdown(item)}</div>` +
+            `<div class="rule-meta">${metaInner}</div>` +
+            `</div>`,
+        );
+      }
+    }
+  }
+  els.rulesList.innerHTML = html.join("");
+}
+
 async function openActivityModal() {
   if (!els.activityModal) return;
   els.activityModal.classList.remove("hidden");
@@ -4622,12 +4770,13 @@ function openDeletePopover(anchorEl, target) {
         alert(`삭제 실패: ${err.error ?? res.status}`);
         return;
       }
-      // 챕터 목록 + 사이드바 진도/배지 + 휴지통/활동 뱃지 모두 갱신
+      // 챕터 목록 + 사이드바 진도/배지 + 휴지통/활동/규칙 뱃지 모두 갱신
       await Promise.all([
         loadRoadmapData(),
         refreshSidebarRoadmaps(),
         refreshTrashBadge(),
         refreshActivityBadge(),
+        refreshRulesBadge(),
       ]);
     } catch (err) {
       alert(`삭제 실패: ${err.message}`);
@@ -5345,6 +5494,7 @@ async function endSession() {
     renderRoadmapSelector();
     await loadRoadmapData();
     refreshActivityBadge();
+    refreshRulesBadge();
     setStatus("");
   } catch (err) {
     card.classList.add("error");

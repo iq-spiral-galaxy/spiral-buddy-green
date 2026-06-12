@@ -140,6 +140,14 @@
       </section>
 
       <section class="trash-section">
+        <button id="rules-open-btn" class="trash-open-btn rules-btn" type="button" title="판단 규칙 인덱스 — 노트에서 증류한 판단 규칙 모아보기">
+          <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <circle cx="12" cy="12" r="9"></circle>
+            <polygon points="15.5,8.5 13.2,13.2 8.5,15.5 10.8,10.8"></polygon>
+          </svg>
+          <span>판단 규칙</span>
+          <span id="rules-count" class="trash-count rules-count">—</span>
+        </button>
         <button id="activity-open-btn" class="trash-open-btn activity-btn" type="button" title="학습 활동 캘린더 — 나선 기록과 연속일">
           <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
             <rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect>
@@ -402,6 +410,20 @@
           <span><kbd>Enter</kbd> 열기</span>
           <span><kbd>ESC</kbd> 닫기</span>
         </div>
+      </div>
+    </div>
+
+    <div id="rules-modal" class="modal-overlay hidden" aria-hidden="true">
+      <div class="modal rules-modal" role="dialog" aria-modal="true" aria-labelledby="rules-modal-title">
+        <header class="trash-modal-header">
+          <h3 id="rules-modal-title">🧭 판단 규칙 인덱스</h3>
+          <button id="rules-modal-close" class="modal-close" type="button" aria-label="닫기">✕</button>
+        </header>
+        <div class="rules-toolbar">
+          <input id="rules-search" type="text" placeholder="규칙 검색… (예: 가격, 협상, 복리)" autocomplete="off" spellcheck="false" />
+          <span id="rules-summary" class="rules-summary"></span>
+        </div>
+        <div id="rules-list" class="rules-list"></div>
       </div>
     </div>
 

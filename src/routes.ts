@@ -32,7 +32,11 @@ import {
   writeNewNote,
 } from "./vault.js";
 import { suggestNext } from "./spiral.js";
-import { generateNote } from "./note-writer.js";
+import {
+  generateNote,
+  extractSectionBody,
+  splitRuleItems,
+} from "./note-writer.js";
 import {
   SESSION_SYSTEM,
   buildInitialContext,
@@ -56,6 +60,7 @@ import {
   groupReposByCategory,
   categorizeLocalRoadmap,
   getOrgCategories,
+  getOrgDomains,
   normalizeRepoName,
   findDomainForCategory,
 } from "./categories.js";
@@ -860,6 +865,82 @@ export function createApi(config: Config) {
         obsidianUri: obsidianUri(n.relativePath),
       })),
     );
+  });
+
+  // ─────────────────────────────────────────────────────
+  // 판단 규칙 인덱스 (Green 전용) — 모든 노트의 "## 판단 규칙"
+  // 섹션만 추출해 레이어(도메인)별로 모아 반환. 학습이 쌓일수록
+  // 두꺼워지는 개인 의사결정 핸드북의 데이터 소스.
+  // ─────────────────────────────────────────────────────
+
+  app.get("/rules", async (c) => {
+    if (!config.vaultPath) {
+      return c.json({ error: "No vault configured" }, 400);
+    }
+    const notes = await listSpiralNotes(config.vaultPath);
+
+    // repo → 레이어(도메인) 매핑 — curated org의 domains 정의 기반
+    const domains = config.curatedOrg
+      ? await getOrgDomains(config.curatedOrg)
+      : null;
+    const domainByRepo = new Map<
+      string,
+      { id: string; name: string; emoji: string; color: string; order: number }
+    >();
+    if (domains) {
+      for (const d of domains) {
+        for (const cat of d.categories) {
+          for (const r of cat.repos) {
+            domainByRepo.set(normalizeRepoName(r), {
+              id: d.id,
+              name: d.name,
+              emoji: d.emoji,
+              color: d.color,
+              order: d.order ?? 99,
+            });
+          }
+        }
+      }
+    }
+
+    const entries = [];
+    let ruleCount = 0;
+    for (const n of notes) {
+      const section = extractSectionBody(n.body, "판단 규칙");
+      if (!section) continue;
+      const items = splitRuleItems(section);
+      if (items.length === 0) continue;
+      ruleCount += items.length;
+      const domain = n.repo
+        ? (domainByRepo.get(normalizeRepoName(n.repo)) ?? null)
+        : null;
+      entries.push({
+        items,
+        topic: n.topic,
+        chapter: n.chapter,
+        repo: n.repo,
+        roadmapName: n.roadmapName,
+        depth: n.depth,
+        date: n.date,
+        obsidianUri: obsidianUri(n.filePath),
+        domain,
+      });
+    }
+
+    // 레이어 order 오름차순 → 같은 레이어 안에선 최신 노트 먼저
+    entries.sort((a, b) => {
+      const ao = a.domain?.order ?? 999;
+      const bo = b.domain?.order ?? 999;
+      if (ao !== bo) return ao - bo;
+      return (b.date ?? "").localeCompare(a.date ?? "");
+    });
+
+    return c.json({
+      totalNotes: notes.length,
+      noteCount: entries.length,
+      ruleCount,
+      entries,
+    });
   });
 
   // ─────────────────────────────────────────────────────
