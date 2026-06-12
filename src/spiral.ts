@@ -10,10 +10,10 @@ export interface SpiralSuggestion {
   mode: "first-time" | "deeper-layer" | "next-chapter" | "cross-link";
 }
 
-/** 콘텐츠 레포명 표시용: -distilled 제거 + 하이픈→공백 + Title Case (-everywhere는 유지). */
+/** 콘텐츠 이름 표시용: -distilled 제거 + 하이픈→공백 + Title Case (-everywhere는 유지). */
 function displayContentName(name: string): string {
   const raw = (name ?? "").trim();
-  if (!/-(distilled|everywhere)$/i.test(raw)) return name;
+  if (!raw.includes("-")) return name;
   return raw
     .replace(/-distilled$/i, "")
     .split("-")

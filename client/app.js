@@ -175,13 +175,11 @@ function formatRepoDisplayName(repoName) {
     .join(" ");
 }
 
-// 로드맵 표시명: 평탄 클론은 로드맵명 == 레포 디렉토리명이라 raw suffix가
-// 그대로 노출됨. 콘텐츠 레포 suffix가 확실할 때만 포맷 (사용자 임의 폴더명 보존).
+// 로드맵/sub-roadmap 표시명 (v0.4.5 — 범용화): 하이픈→공백 + 단어별 첫글자
+// 대문자, "-distilled" suffix는 제거. 하이픈 없는 이름(한글 폴더 등)은 그대로.
+// 예: probability-as-language → Probability As Language
 function displayRoadmapName(name) {
-  const raw = String(name ?? "");
-  return /-(distilled|everywhere)$/i.test(raw.trim())
-    ? formatRepoDisplayName(raw)
-    : raw;
+  return formatRepoDisplayName(name);
 }
 
 function groupIconHtml(name) {
@@ -900,6 +898,7 @@ function renderRoadmapSelector() {
       r.hierarchy?.repo ?? "",
       formatRepoDisplayName(r.hierarchy?.repo ?? ""),
       r.hierarchy?.sub ?? "",
+      displayRoadmapName(r.hierarchy?.sub ?? ""),
     ]
       .join(" ")
       .toLowerCase();
@@ -1136,7 +1135,7 @@ function renderRoadmapSelector() {
               .map((r, idx) => {
                 const isActive = r.id === state.activeRoadmapId;
                 const { sub } = parseHierarchy(r);
-                const displayName = sub ?? r.name;
+                const displayName = displayRoadmapName(sub ?? r.name);
                 const lastDate = r.lastDate ?? "—";
                 const visited = (r.maxDepth ?? 0) > 0;
                 const depthBadge = visited
