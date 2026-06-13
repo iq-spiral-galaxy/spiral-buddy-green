@@ -304,11 +304,17 @@ body.sidebar-collapsed #sidebar-resizer {
   color: var(--text);
 }
 
-/* v0.5.51 — 가장 최근 학습 챕터: 재진입 시 한눈에 보이도록 강한 시각 표식.
- * 단순 visited보다 한 단계 위 강조 — 좌측 accent bar + 살짝 빛남.
+/* v0.5.51 / v0.4.7 — 두 가지 표식 분리:
+ *  --active: 현재 진행 중인 세션의 챕터 (없으면 마지막 저장 챕터로 폴백).
+ *           좌측 accent bar + 살짝 빛남. "지금 이 챕터에 있다".
+ *  --last:  마지막으로 end-save 한 챕터. 우측 "마지막" 라벨만.
+ * 한 챕터가 둘 다일 수 있음 (진행 챕터 == 마지막 저장 챕터).
  */
-.chapter-item--recent .chapter-btn {
+.chapter-item--active .chapter-btn,
+.chapter-item--last .chapter-btn {
   position: relative;
+}
+.chapter-item--active .chapter-btn {
   background: linear-gradient(
     90deg,
     rgba(110, 231, 183, 0.10) 0%,
@@ -318,7 +324,7 @@ body.sidebar-collapsed #sidebar-resizer {
   border-left: 3px solid var(--accent, #6ee7b7);
   padding-left: calc(var(--chapter-pad-left, 10px) - 3px);
 }
-.chapter-item--recent .chapter-btn::after {
+.chapter-item--last .chapter-btn::after {
   content: "마지막";
   position: absolute;
   top: 50%;
@@ -331,10 +337,10 @@ body.sidebar-collapsed #sidebar-resizer {
   opacity: 0.75;
   pointer-events: none;
 }
-.chapter-item--recent .chapter-btn:hover::after {
+.chapter-item--last .chapter-btn:hover::after {
   opacity: 0; /* hover 시 액션 아이콘과 안 겹치게 사라짐 */
 }
-body.light-mode .chapter-item--recent .chapter-btn {
+body.light-mode .chapter-item--active .chapter-btn {
   background: linear-gradient(
     90deg,
     rgba(4, 120, 87, 0.10) 0%,
@@ -343,7 +349,7 @@ body.light-mode .chapter-item--recent .chapter-btn {
   );
   border-left-color: #0e7490;
 }
-body.light-mode .chapter-item--recent .chapter-btn::after {
+body.light-mode .chapter-item--last .chapter-btn::after {
   color: #0e7490;
 }
 
