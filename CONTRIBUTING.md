@@ -26,9 +26,22 @@ Spiral Buddy Green에 관심 가져주셔서 감사합니다. PR·이슈 모두 
    이 라인이 DCO 동의의 증거이며, CI(DCO 검사)가 이를 확인합니다.
 4. `pnpm install && pnpm build` 로 빌드가 통과하는지 확인.
 5. PR을 열고 템플릿의 동의 항목을 체크.
+6. **CLA 서명** — 첫 기여라면 CLA Assistant 봇이 PR에 댓글로 서명을 요청합니다.
+   [CLA 문서](CLA.md)를 읽고 PR에 아래 문구를 **그대로 댓글로** 작성하면 서명됩니다
+   (한 번 서명하면 이후 PR에도 자동 적용):
+   ```
+   CLA 문서를 읽었으며 이에 동의하고 서명합니다
+   ```
 
 > 💡 sign-off를 깜빡했다면 `git commit --amend -s` (마지막 커밋) 또는
 > `git rebase --signoff main` (여러 커밋)으로 추가할 수 있습니다.
+
+### 두 가지 자동 검사 정리
+
+| 검사 | 무엇을 확인 | 통과 방법 |
+|---|---|---|
+| **DCO** | 각 커밋의 출처 증명 | `git commit -s` (커밋마다 sign-off) |
+| **CLA Assistant** | CLA 전문 동의 (1회) | PR에 위 서명 문구 댓글 |
 
 ## <a name="dco"></a>📜 개발자 원산지 증명 (Developer Certificate of Origin 1.1)
 

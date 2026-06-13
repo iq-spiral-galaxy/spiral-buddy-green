@@ -93,13 +93,16 @@
 
 ## 9. 동의 방법
 
-다음 중 하나에 해당하면 기여자는 본 CLA에 동의한 것으로 봅니다:
+다음에 해당하면 기여자는 본 CLA에 동의한 것으로 봅니다:
 
-1. 프로젝트 저장소에 PR(풀 리퀘스트)을 제출하는 행위, 그리고
-2. 각 커밋에 [개발자 원산지 증명(DCO)](CONTRIBUTING.md#dco) `Signed-off-by:` 라인을 포함하는
-   행위.
+1. 프로젝트 저장소에 PR(풀 리퀘스트)을 제출하고,
+2. **CLA Assistant** 봇의 요청에 따라 PR에 서명 문구(`CLA 문서를 읽었으며 이에 동의하고
+   서명합니다`)를 댓글로 작성하여 서명하며,
+3. 각 커밋에 [개발자 원산지 증명(DCO)](CONTRIBUTING.md#dco) `Signed-off-by:` 라인을
+   포함하는 행위.
 
-자세한 절차는 [CONTRIBUTING.md](CONTRIBUTING.md)를 참고하세요.
+2번의 서명 기록(GitHub 사용자명·시각·동의한 CLA 버전)은 저장소의 `cla-signatures`
+브랜치에 보존됩니다. 자세한 절차는 [CONTRIBUTING.md](CONTRIBUTING.md)를 참고하세요.
 
 ---
 
