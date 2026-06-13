@@ -40,6 +40,8 @@ jobs:
           path-to-document: https://github.com/iq-spiral-galaxy/spiral-buddy-green/blob/main/CLA.md
           # 서명 면제 — 프로젝트 소유자 + 봇 계정
           allowlist: e9ua1,*[bot]
+          # 머지 후 PR 대화 잠금 비활성 (closed 트리거도 안 받음)
+          lock-pullrequest-aftermerge: false
           # 기여자가 서명할 때 PR에 작성해야 하는 정확한 문구
           custom-pr-sign-comment: CLA 문서를 읽었으며 이에 동의하고 서명합니다
           custom-notsigned-prcomment: |
