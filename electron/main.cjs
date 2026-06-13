@@ -1816,7 +1816,32 @@ async function bootOrSetup() {
   createSetupWindow();
 }
 
+// v0.4.6 — 단일 인스턴스 락.
+//
+// Green이 이미 떠 있는데 또 실행하면 두 번째 인스턴스가 같은 고정 포트
+// (4557)를 다시 잡으려다 EADDRINUSE로 크래시했음 (사용자 보고: "킬려고 하면
+// listen EADDRINUSE :::4557"). 락을 못 얻으면 = 이미 실행 중이므로, 기존
+// 창을 포커스하고 두 번째 인스턴스는 조용히 종료.
+//
+// 락은 appId(com.iq-lab.spiral-buddy-green)/userData 기준이라 Blue·Red와는
+// 무관 — 세 버디는 여전히 동시 실행 가능.
+const gotSingleInstanceLock = app.requestSingleInstanceLock();
+if (!gotSingleInstanceLock) {
+  app.quit();
+} else {
+  app.on("second-instance", () => {
+    const win = mainWindow ?? setupWindow;
+    if (win && !win.isDestroyed()) {
+      if (win.isMinimized()) win.restore();
+      win.show();
+      win.focus();
+    }
+  });
+}
+
 app.whenReady().then(async () => {
+  // 락을 못 얻은 인스턴스는 곧 종료되므로 부팅하지 않음 (창 중복 방지)
+  if (!gotSingleInstanceLock) return;
   // macOS 기본 메뉴 유지 (Cmd+Q 등)
   if (process.platform === "darwin") {
     Menu.setApplicationMenu(Menu.getApplicationMenu());

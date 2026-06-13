@@ -78,9 +78,16 @@ export async function startServer(): Promise<{ url: string; port: number }> {
   });
 
   const port = Number(process.env.PORT ?? 3737);
-  const url = `http://localhost:${port}`;
+  // v0.4.6 — 127.0.0.1로 명시 바인딩.
+  // 기본값(미지정)은 node가 "::"(IPv6 전체)에 listen → Electron의 빈 포트
+  // 검사(findFreePort)는 127.0.0.1만 확인하므로 주소 패밀리가 어긋나
+  // 점유된 포트를 free로 오판 → 실제 bind에서 EADDRINUSE(:::PORT)로 크래시.
+  // 검사·연결(waitForServer)·메인 윈도우 로드가 전부 127.0.0.1이라 그에 통일.
+  // 로컬 전용 앱이라 외부 인터페이스 노출도 불필요(보안 ↑).
+  const host = "127.0.0.1";
+  const url = `http://${host}:${port}`;
 
-  serve({ fetch: app.fetch, port }, async () => {
+  serve({ fetch: app.fetch, port, hostname: host }, async () => {
     console.log();
     console.log(chalk.bold.cyan("  🌀 iq-spiral-buddy"));
     console.log(chalk.gray("  spiral learning · Claude × Obsidian"));
