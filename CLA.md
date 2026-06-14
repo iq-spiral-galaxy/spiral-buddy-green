@@ -4,7 +4,7 @@
 
 > ⚠️ **고지**: 이 문서는 업계 표준(Apache Individual CLA 등)을 기반으로 한 템플릿이며,
 > **법률 자문이 아닙니다.** 정식 사업화·투자 전에 반드시 변호사 검토를 받으세요.
-> 현재 소유자는 §0에서 **Donghee Han**으로 확정되어 있습니다. 향후 법인 설립 시
+> 현재 소유자는 §0에서 **Donghee Han (한동희, @e9ua1)**으로 확정되어 있습니다. 향후 법인 설립 시
 > 변호사와 함께 소유자를 법인으로 승계·갱신하세요.
 
 ---
@@ -12,7 +12,7 @@
 ## 0. 정의
 
 - **"프로젝트"** — `iq-spiral-galaxy/spiral-buddy-green` 저장소 및 그 파생·후속 저작물.
-- **"프로젝트 소유자"** — **Donghee Han**(향후 설립될 법인으로 승계될 수 있음). 이하 "소유자".
+- **"프로젝트 소유자"** — **Donghee Han (한동희, @e9ua1)**(향후 설립될 법인으로 승계될 수 있음). 이하 "소유자".
 - **"기여(Contribution)"** — 귀하가 프로젝트에 제출(Pull Request, 패치, 이슈 첨부 코드,
   문서 등 형식 불문)한 모든 저작물 및 그 수정.
 - **"귀하(기여자)"** — 기여를 제출하는 개인 또는 법인.
@@ -134,4 +134,5 @@
 ---
 
 *프로젝트에 기여함으로써 귀하는 위 내용을 읽고 동의함을 확인합니다.*
-*Spiral Buddy Green은 [iq-spiral-galaxy](https://github.com/iq-spiral-galaxy) 패밀리의 일부입니다.*
+
+*Spiral Buddy Green는 [iq-spiral-galaxy](https://github.com/iq-spiral-galaxy) 패밀리의 일부입니다.*
