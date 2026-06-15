@@ -1,6 +1,6 @@
 {
   "name": "spiral-buddy-green",
-  "version": "0.4.8",
+  "version": "0.4.9",
   "description": "Spiral learning buddy for practical wisdom — bridges Claude and Obsidian. Local desktop app: roadmap-driven sessions, auto-structured notes, spiral revisit detection.",
   "type": "module",
   "main": "electron/main.cjs",
