@@ -1,5 +1,5 @@
 // iq-spiral-buddy client — 아이콘 SVG + 카테고리/레포/그룹 아이콘 헬퍼 (공유 모듈)
-// ICON_SVG / CATEGORY_ICON_BY_NAME / svgIcon 은 모듈 내부 전용 — export 안 함.
+// ICON_SVG / CATEGORY_ICON_BY_NAME 은 모듈 내부 전용. svgIcon 은 export (테스트 대상).
 // green의 org 카테고리는 다른 색 변형과 다를 수 있으므로 green 자체 맵 사용.
 
 const CATEGORY_ICON_BY_NAME = {
@@ -69,7 +69,7 @@ const ICON_SVG = {
   book: `<path d="M12 6.2C10.2 4.7 7.6 4.2 4 4.2v13.6c3.6 0 6.2.5 8 2 1.8-1.5 4.4-2 8-2V4.2c-3.6 0-6.2.5-8 2Z"/><line x1="12" y1="6.2" x2="12" y2="19.8"/>`,
 };
 
-function svgIcon(name, className = "inline-icon") {
+export function svgIcon(name, className = "inline-icon") {
   const body = ICON_SVG[name] ?? ICON_SVG.folder;
   return `<svg class="${className}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${body}</svg>`;
 }
