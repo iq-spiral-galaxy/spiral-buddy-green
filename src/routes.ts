@@ -9,6 +9,7 @@ import {
   completeOnce,
   streamTurn,
   friendlyApiErrorMessage,
+  type ClaudeClient,
 } from "./claude.js";
 import {
   loadRoadmapChapters,
@@ -192,32 +193,42 @@ async function sortRoadmapsByCategory(
   });
 }
 
-export function createApi(config: Config) {
-  const app = new Hono();
-  const client = createClient(config);
-
-  // ─────────────────────────────────────────────────────
-  // 헬퍼
-  // ─────────────────────────────────────────────────────
-
+// 노트 파일경로 → obsidian://open URL (vault 미설정 시 null).
+function obsidianUri(config: Config, fileNameOrPath: string): string | null {
+  if (!config.vaultName || !config.vaultPath) return null;
   const vaultSubDir = process.env.SPIRAL_VAULT_SUBDIR?.trim() || "spiral-buddy";
-  function obsidianUri(fileNameOrPath: string): string | null {
-    if (!config.vaultName || !config.vaultPath) return null;
-    const absPath = path.isAbsolute(fileNameOrPath)
-      ? fileNameOrPath
-      : path.join(config.vaultPath, vaultSubDir, fileNameOrPath);
-    const root = config.obsidianVaultRoot ?? config.vaultPath;
-    // obsidian:// URL은 항상 forward slash — Windows 백슬래시 정규화
-    const relativeToVault = path
-      .relative(root, absPath)
-      .replace(/\.md$/, "")
-      .split(path.sep)
-      .join("/");
-    return `obsidian://open?vault=${encodeURIComponent(config.vaultName)}&file=${encodeURIComponent(relativeToVault)}`;
+  const absPath = path.isAbsolute(fileNameOrPath)
+    ? fileNameOrPath
+    : path.join(config.vaultPath, vaultSubDir, fileNameOrPath);
+  const root = config.obsidianVaultRoot ?? config.vaultPath;
+  // obsidian:// URL은 항상 forward slash — Windows 백슬래시 정규화
+  const relativeToVault = path
+    .relative(root, absPath)
+    .replace(/\.md$/, "")
+    .split(path.sep)
+    .join("/");
+  return `obsidian://open?vault=${encodeURIComponent(config.vaultName)}&file=${encodeURIComponent(relativeToVault)}`;
+}
+
+// curated install/refresh/uninstall 공통 가드 — curatedOrg 활성 + body 파싱 + repo_name 검증.
+// 성공 시 {org, repoName}, 실패 시 {err: Response}(400) 반환 → 호출부에서 early return.
+async function parseCuratedRepoBody(
+  c: Context,
+  config: Config,
+): Promise<{ org: string; repoName: string } | { err: Response }> {
+  if (!config.curatedOrg) {
+    return { err: c.json({ error: "curated source disabled" }, 400) };
   }
+  const body = await c.req
+    .json<{ repo_name: string; org?: string }>()
+    .catch(() => null);
+  if (!body?.repo_name) {
+    return { err: c.json({ error: "repo_name required" }, 400) };
+  }
+  return { org: body.org ?? config.curatedOrg, repoName: body.repo_name };
+}
 
-  // getInstalledRoadmaps / resolveRoadmap 는 ./roadmap-service.js 로 분리됨 (mcp와 공유).
-
+function registerCoreRoutes(app: Hono, config: Config) {
   // ─────────────────────────────────────────────────────
   // 1. Config
   // ─────────────────────────────────────────────────────
@@ -293,6 +304,9 @@ export function createApi(config: Config) {
     return c.json(enriched);
   });
 
+}
+
+function registerCuratedRoutes(app: Hono, config: Config) {
   // ─────────────────────────────────────────────────────
   // 2-b. Curated repos (available + installed)
   // ─────────────────────────────────────────────────────
@@ -325,25 +339,8 @@ export function createApi(config: Config) {
     }
   });
 
-  // curated install/refresh/uninstall 공통 가드 — curatedOrg 활성 + body 파싱 + repo_name 검증.
-  // 성공 시 {org, repoName}, 실패 시 {err: Response}(400) 반환 → 호출부에서 early return.
-  async function parseCuratedRepoBody(
-    c: Context,
-  ): Promise<{ org: string; repoName: string } | { err: Response }> {
-    if (!config.curatedOrg) {
-      return { err: c.json({ error: "curated source disabled" }, 400) };
-    }
-    const body = await c.req
-      .json<{ repo_name: string; org?: string }>()
-      .catch(() => null);
-    if (!body?.repo_name) {
-      return { err: c.json({ error: "repo_name required" }, 400) };
-    }
-    return { org: body.org ?? config.curatedOrg, repoName: body.repo_name };
-  }
-
   app.post("/curated/install", async (c) => {
-    const p = await parseCuratedRepoBody(c);
+    const p = await parseCuratedRepoBody(c, config);
     if ("err" in p) return p.err;
     const { org, repoName } = p;
     try {
@@ -360,7 +357,7 @@ export function createApi(config: Config) {
   });
 
   app.post("/curated/refresh", async (c) => {
-    const p = await parseCuratedRepoBody(c);
+    const p = await parseCuratedRepoBody(c, config);
     if ("err" in p) return p.err;
     const { org, repoName } = p;
     try {
@@ -373,7 +370,7 @@ export function createApi(config: Config) {
   });
 
   app.post("/curated/uninstall", async (c) => {
-    const p = await parseCuratedRepoBody(c);
+    const p = await parseCuratedRepoBody(c, config);
     if ("err" in p) return p.err;
     const { org, repoName } = p;
     try {
@@ -385,6 +382,9 @@ export function createApi(config: Config) {
     }
   });
 
+}
+
+function registerChapterRoutes(app: Hono, config: Config, client: ClaudeClient) {
   // ─────────────────────────────────────────────────────
   // 3. Chapters (로드맵별)
   // ─────────────────────────────────────────────────────
@@ -447,7 +447,7 @@ export function createApi(config: Config) {
               .sort((a, b) => b.date.localeCompare(a.date));
             const note = sameDepth[0];
             if (!note) return null;
-            const url = obsidianUri(note.filePath);
+            const url = obsidianUri(config, note.filePath);
             if (!url) return null;
             return { depth: d, url, date: note.date };
           })
@@ -529,6 +529,9 @@ export function createApi(config: Config) {
     }
   });
 
+}
+
+function registerSearchNotesRoutes(app: Hono, config: Config) {
   // ─────────────────────────────────────────────────────
   // 3a. 검색 — 로드맵 + 노트 + 매칭된 로드맵의 챕터
   // ─────────────────────────────────────────────────────
@@ -579,7 +582,7 @@ export function createApi(config: Config) {
         chapterId: n.chapterId,
         roadmapId: n.roadmapId,
         roadmapName: n.roadmapName,
-        obsidianUrl: obsidianUri(n.filePath),
+        obsidianUrl: obsidianUri(config, n.filePath),
       }));
 
     // 3) 챕터 매칭 — 매칭된 로드맵 + 노트가 있는 로드맵 안에서만 (성능)
@@ -798,7 +801,7 @@ export function createApi(config: Config) {
         depth: n.depth,
         summary: n.summary,
         relativePath: n.relativePath,
-        obsidianUri: obsidianUri(n.relativePath),
+        obsidianUri: obsidianUri(config, n.relativePath),
       })),
     );
   });
@@ -858,7 +861,7 @@ export function createApi(config: Config) {
         roadmapName: n.roadmapName,
         depth: n.depth,
         date: n.date,
-        obsidianUri: obsidianUri(n.filePath),
+        obsidianUri: obsidianUri(config, n.filePath),
         domain,
       });
     }
@@ -906,6 +909,9 @@ export function createApi(config: Config) {
     });
   });
 
+}
+
+function registerAiRoutes(app: Hono, config: Config, client: ClaudeClient) {
   // ─────────────────────────────────────────────────────
   // 5. Suggest (로드맵별)
   // ─────────────────────────────────────────────────────
@@ -1216,6 +1222,9 @@ export function createApi(config: Config) {
       );
     }
   });
+}
+
+function registerSessionRoutes(app: Hono, config: Config, client: ClaudeClient) {
 
   // ─────────────────────────────────────────────────────
   // 6. Session lifecycle
@@ -1430,7 +1439,7 @@ export function createApi(config: Config) {
         const result = {
           path: writtenPath,
           relativePath: path.basename(writtenPath),
-          obsidianUri: obsidianUri(writtenPath),
+          obsidianUri: obsidianUri(config, writtenPath),
           elapsedMs,
           inputTokens: session.totalInputTokens,
           outputTokens: session.totalOutputTokens,
@@ -1491,9 +1500,25 @@ export function createApi(config: Config) {
       model: session.model ?? null,
     });
   });
+}
+
+export function createApi(config: Config) {
+  const app = new Hono();
+  const client = createClient(config);
+
+  // 헬퍼 obsidianUri / parseCuratedRepoBody / getInstalledRoadmaps / resolveRoadmap
+  // 는 모듈레벨로 분리됨 (config를 인자로 받음).
+
+  registerCoreRoutes(app, config);
+  registerCuratedRoutes(app, config);
+  registerChapterRoutes(app, config, client);
+  registerSearchNotesRoutes(app, config);
+  registerAiRoutes(app, config, client);
+  registerSessionRoutes(app, config, client);
 
   return app;
 }
+
 
 /**
  * 가볍고 deterministic한 hash — 캐시 key용. crypto SHA 만큼 안전할 필요 X.
