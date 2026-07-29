@@ -28,6 +28,7 @@ import {
   noteBelongsToRoadmap,
   noteMatchesChapter,
   writeNewNote,
+  getSpiralVaultSubDir,
 } from "./vault.js";
 import {
   validateAndPatchSections,
@@ -56,6 +57,9 @@ async function main() {
   }
 
   const vaultPath = config.vaultPath;
+  // Electron workspace가 명시한 sub-dir를 우선하고, 독립 MCP 실행 시에는
+  // Green 전용 기본 폴더를 사용한다.
+  const vaultSubDir = getSpiralVaultSubDir();
 
   // getInstalledRoadmaps / resolveRoadmap 는 ./roadmap-service.js 로 분리됨 (routes와 공유).
   // (이전 mcp 전용 resolveRoadmapByIdOrName == resolveRoadmap, null 분기만 미사용)
@@ -545,7 +549,7 @@ async function main() {
       },
     },
     async ({ relative_path }) => {
-      const filePath = path.join(vaultPath, "spiral-buddy", relative_path);
+      const filePath = path.join(vaultPath, vaultSubDir, relative_path);
       try {
         const content = await fs.readFile(filePath, "utf-8");
         return { content: [{ type: "text", text: content }] };
@@ -618,7 +622,7 @@ async function main() {
       const { missing, patchedBody } = validateAndPatchSections(body);
 
       const relatedAbs = (related_note_paths ?? []).map((rp) =>
-        path.join(vaultPath, "spiral-buddy", rp),
+        path.join(vaultPath, vaultSubDir, rp),
       );
 
       // roadmap.id (예: "unit-testing/anatomy-of-good-tests") → repo + roadmap path
@@ -674,7 +678,7 @@ async function main() {
     {
       title: "학습 노트 삭제 (vault의 .trash/로 이동, 복구 가능)",
       description:
-        "특정 챕터 또는 로드맵의 노트를 vault의 spiral-buddy/.trash/로 이동합니다. fs.unlink가 아니라 rename이라 사용자가 직접 복구 가능합니다. " +
+        `특정 챕터 또는 로드맵의 노트를 vault의 ${vaultSubDir}/.trash/로 이동합니다. fs.unlink가 아니라 rename이라 사용자가 직접 복구 가능합니다. ` +
         "범위 결정:\n" +
         "- chapter_id 있으면: 그 챕터만\n" +
         "- chapter_id 없으면: roadmap의 모든 챕터\n" +

@@ -7,6 +7,8 @@ import {
   cssEscape,
   truncate,
   _relTime,
+  fetchJson,
+  FetchTimeoutError,
 } from "./util.js";
 import {
   STREAM_INACTIVITY_MS,
@@ -17,17 +19,21 @@ import {
   pumpStream,
   parseSseMessage,
 } from "./stream.js";
+import { renderMarkdown, safeMarkedInto } from "./markdown.js";
 import {
   categoryIconHtml,
   repoIconHtml,
   groupIconHtml,
+  rolePresetIconHtml,
+  roadmapIconHtml,
   DEPTH_ICONS,
   CONTEXT_ICON_SVG,
-  THUMBS_UP_SVG,
-  THUMBS_DOWN_SVG,
 } from "./icons.js";
 import { LLM_PRESETS } from "./llm-presets.js";
-import { renderMarkdown, safeMarkedInto } from "./markdown.js";
+import {
+  buildLearningHubMarkup,
+  getLatestHistoryNote,
+} from "./learning-hub.js";
 
 // ──────────────────────────────────────────────────────────
 // State
@@ -59,7 +65,6 @@ const state = {
   activeRoadmapId: null,
   chapters: [],
   history: [],
-  suggestion: null,
   session: null,
   messages: [],
   pending: false,
@@ -76,28 +81,45 @@ const state = {
 
 // localStorage에 마지막 로드맵 저장
 const LS_KEY = "spiral-buddy:lastRoadmapId";
+const DEFAULT_VAULT_SUBDIR = "spiral-buddy-green";
 
-// 레포 표시명 (v0.4.4): "-distilled" suffix 제거 + 하이픈→공백 + 단어별 첫글자 대문자.
-// "-everywhere"(Synthesis 레이어)는 suffix 유지.
-// 예: probabilistic-thinking-distilled → Probabilistic Thinking
-//     incentives-everywhere → Incentives Everywhere
-// 내부 키/검색 인덱스/설치 요청은 전부 raw 이름 그대로 — 표시 전용.
+function workspaceVaultSubDir(workspace) {
+  const explicit = String(workspace?.vaultSubDir ?? "").trim();
+  return explicit || DEFAULT_VAULT_SUBDIR;
+}
+
+function activeWorkspaceVaultSubDir() {
+  const active = _settingsCache?.workspaces?.find(
+    (workspace) => workspace.id === _settingsCache.activeWorkspaceId,
+  );
+  return workspaceVaultSubDir(active);
+}
+
+// Green의 "-distilled" 콘텐츠 이름을 사람이 읽기 좋은 제목으로 표시한다.
+// 내부 id·경로·검색 키는 바꾸지 않는다.
 function formatRepoDisplayName(repoName) {
   const raw = String(repoName ?? "").trim();
   if (!raw) return raw;
-  return raw
+  const normalized = raw
     .replace(/-distilled$/i, "")
+    .replace(/^\s*(?:chapter|챕터|ch)\s*\d+\s*[-:.)\]]*\s*/i, "")
+    .trim();
+  return (normalized || raw)
     .split("-")
     .filter(Boolean)
-    .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
     .join(" ");
 }
 
-// 로드맵/sub-roadmap 표시명 (v0.4.5 — 범용화): 하이픈→공백 + 단어별 첫글자
-// 대문자, "-distilled" suffix는 제거. 하이픈 없는 이름(한글 폴더 등)은 그대로.
-// 예: probability-as-language → Probability As Language
 function displayRoadmapName(name) {
   return formatRepoDisplayName(name);
+}
+
+// 레포/로드맵 표시명은 Green의 "-distilled" 규칙을 공유한다.
+// 학습 홈과 상단 현재 경로에서 사용하는 공개 헬퍼 이름은 Blue 계열 UI와
+// 맞춰 유지해, 화면 렌더 중 ReferenceError가 발생하지 않게 한다.
+function displayRepoName(name) {
+  return displayRoadmapName(name);
 }
 
 function displayWorkspaceName(workspace) {
@@ -111,7 +133,7 @@ function displayWorkspaceName(workspace) {
   if (normalized === "iq-phronesis-lab" || rootBase === "iq-phronesis-lab") {
     return "IQ Phronesis Lab";
   }
-  return rawName || "Workspace";
+  return rawName || "학습 공간";
 }
 
 // ──────────────────────────────────────────────────────────
@@ -124,14 +146,15 @@ const els = {};
 function cacheEls() {
   els.meta = $("meta");
   els.sidebarToggle = $("sidebar-toggle");
+  els.sidebarScrim = $("sidebar-scrim");
   els.roadmapCurrent = $("roadmap-current");
   els.roadmapList = $("roadmap-list");
   // v0.5.51 사이드바 검색
   els.sidebarSearch = $("sidebar-search");
   els.sidebarSearchClear = $("sidebar-search-clear");
   els.sidebarSearchMeta = $("sidebar-search-meta");
-  els.suggestion = $("suggestion-box");
   els.chapterList = $("chapter-list");
+  els.chapterProgressSummary = $("chapter-progress-summary");
   els.historyList = $("history-list");
   els.topbar = $("current-chapter");
   els.messages = $("messages");
@@ -163,6 +186,8 @@ function cacheEls() {
   els.searchModal = $("search-modal");
   els.searchInput = $("search-input");
   els.searchResults = $("search-results");
+  els.searchCloseBtn = $("search-close-btn");
+  els.searchStatus = $("search-status");
   els.activityOpenBtn = $("activity-open-btn");
   els.activityStreak = $("activity-streak");
   els.activityModal = $("activity-modal");
@@ -170,7 +195,8 @@ function cacheEls() {
   els.activitySummary = $("activity-summary");
   els.activityGrid = $("activity-grid");
   els.activityMonthLabels = $("activity-month-labels");
-  // 판단 규칙 인덱스
+  els.commandSearchBtn = $("command-search-btn");
+  // Green 전용 판단 규칙 인덱스
   els.rulesOpenBtn = $("rules-open-btn");
   els.rulesCount = $("rules-count");
   els.rulesModal = $("rules-modal");
@@ -182,14 +208,12 @@ function cacheEls() {
   els.settingsBtn = $("settings-btn");
   els.settingsModal = $("settings-modal");
   els.settingsModalClose = $("settings-modal-close");
-  els.workspaceCurrent = $("workspace-current");
-  els.workspaceName = $("workspace-name");
-  els.workspaceList = $("workspace-list");
   els.addWsModal = $("add-workspace-modal");
   // Look-up panel + selection toolbar
   els.lookupPanel = $("lookup-panel");
   els.lookupPanelBody = $("lookup-panel-body");
   els.lookupClear = $("lookup-clear");
+  els.lookupClose = $("lookup-close");
   els.lookupExpand = $("lookup-expand");
   els.lookupResizer = $("lookup-resizer");
   els.lookupToolbar = $("lookup-toolbar");
@@ -216,16 +240,20 @@ function cacheEls() {
 // ──────────────────────────────────────────────────────────
 
 // v0.5.35 — 테마 (다크/라이트) 적용
-const THEME_KEY = "spiral-buddy:theme";
+// v0.6.5 — 기본 작업 환경을 어두운 모드로 전환.
+// 키를 v2로 분리해 v0.6.4에서 자동 저장된 light 값이 새 기본값을 가로막지 않게 한다.
+// 사용자가 v0.6.5에서 다시 선택한 값은 이후 그대로 유지된다.
+const THEME_KEY = "spiral-buddy:theme:v2";
 
 function applyTheme(theme) {
-  const t = theme === "light" ? "light" : "dark";
+  const t = theme === "dark" ? "dark" : "light";
   document.body.classList.toggle("light-mode", t === "light");
   document.body.classList.toggle("dark-mode", t === "dark");
   document.querySelectorAll(".theme-opt").forEach((b) => {
     const active = b.dataset.theme === t;
     b.classList.toggle("active", active);
     b.setAttribute("aria-checked", active ? "true" : "false");
+    b.tabIndex = active ? 0 : -1;
   });
 }
 
@@ -250,6 +278,7 @@ function applyMotion(on) {
     const active = (b.dataset.motion === "on") === !!on;
     b.classList.toggle("active", active);
     b.setAttribute("aria-checked", active ? "true" : "false");
+    b.tabIndex = active ? 0 : -1;
   });
 }
 
@@ -263,6 +292,26 @@ function getStoredMotion() {
 
 applyMotion(getStoredMotion());
 
+function wireChoiceGroup(selector) {
+  const buttons = Array.from(document.querySelectorAll(selector));
+  buttons.forEach((button, index) => {
+    button.addEventListener("keydown", (event) => {
+      const keys = ["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "Home", "End"];
+      if (!keys.includes(event.key)) return;
+      event.preventDefault();
+      let nextIndex = index;
+      if (event.key === "Home") nextIndex = 0;
+      else if (event.key === "End") nextIndex = buttons.length - 1;
+      else if (event.key === "ArrowLeft" || event.key === "ArrowUp") {
+        nextIndex = (index - 1 + buttons.length) % buttons.length;
+      } else {
+        nextIndex = (index + 1) % buttons.length;
+      }
+      buttons[nextIndex]?.focus();
+      buttons[nextIndex]?.click();
+    });
+  });
+}
 
 document.addEventListener("DOMContentLoaded", async () => {
   cacheEls();
@@ -287,12 +336,18 @@ document.addEventListener("DOMContentLoaded", async () => {
       applyMotion(on);
     });
   });
+  wireChoiceGroup(".theme-opt");
+  wireChoiceGroup(".motion-opt");
+  // 데이터 요청 전에 실제 학습 홈 구조부터 열어, 별도의 welcome 페이지가
+  // 먼저 나타났다가 사라지는 전환을 만들지 않는다.
+  renderLearningHub({ loading: true });
   await loadInitial();
 });
 
 function wireEvents() {
   wireObsidianLinks();
   wireComposer();
+  wireLearningHub();
   wireSidebar();
   wireSidePanels();
   wireRoadmapDropdown();
@@ -396,11 +451,94 @@ function wireComposer() {
   });
 }
 
+function getLatestPausedSession() {
+  return [...readPausedList()].sort(
+    (a, b) => Number(b.pausedAt ?? 0) - Number(a.pausedAt ?? 0),
+  )[0] ?? null;
+}
+
+function renderLearningHub({ loading = false } = {}) {
+  if (state.session || !els.messages) return;
+  updateTopbar();
+  const activeRoadmap = state.roadmaps.find(
+    (roadmap) => roadmap.id === state.activeRoadmapId,
+  );
+  const roadmapName = activeRoadmap
+    ? displayRepoName(activeRoadmap.name)
+    : "내 학습 공간";
+  els.messages.innerHTML = buildLearningHubMarkup({
+    roadmapName,
+    chapters: state.chapters,
+    history: state.history,
+    recentChapterId: getRecentChapterId(),
+    pausedSession: getLatestPausedSession(),
+    canOpenSettings: Boolean(window.spiralSettings),
+    loading,
+  });
+  _scrollState.messagesStick = true;
+  els.messages.scrollTop = 0;
+}
+
+function wireLearningHub() {
+  els.messages?.addEventListener("click", async (event) => {
+    const trigger = event.target.closest("[data-hub-action]");
+    if (!trigger || state.session) return;
+    const action = trigger.dataset.hubAction;
+
+    if (action === "start") {
+      const chapterId = trigger.dataset.chapterId;
+      if (!chapterId) return;
+      trigger.disabled = true;
+      const decision = await handleSessionInterruption();
+      if (decision === "cancel") {
+        trigger.disabled = false;
+        return;
+      }
+      await startSession(chapterId);
+      return;
+    }
+
+    if (action === "resume") {
+      const sessionId = trigger.dataset.sessionId;
+      if (!sessionId) return;
+      trigger.disabled = true;
+      await resumePausedSession(sessionId);
+      if (!state.session) trigger.disabled = false;
+      return;
+    }
+
+    if (action === "recent") {
+      const recentNote = getLatestHistoryNote(state.history);
+      if (recentNote) await openPastConversation(recentNote);
+      return;
+    }
+
+    if (action === "activity") {
+      openActivityModal();
+      return;
+    }
+
+    if (action === "settings" && window.spiralSettings) {
+      els.settingsBtn?.click();
+      return;
+    }
+
+    if (action === "path") {
+      revealActiveLearningLocation();
+    }
+  });
+}
+
 function wireSidebar() {
   // 사이드바 토글 (버튼 + Cmd/Ctrl+B 단축키)
   const SIDEBAR_KEY = "spiral-buddy:sidebar-collapsed";
   function setSidebarCollapsed(collapsed, persist = true) {
     document.body.classList.toggle("sidebar-collapsed", collapsed);
+    els.sidebarToggle?.setAttribute("aria-expanded", String(!collapsed));
+    if (els.sidebarScrim) {
+      els.sidebarScrim.tabIndex =
+        !collapsed && window.matchMedia("(max-width: 820px)").matches ? 0 : -1;
+    }
     if (persist) localStorage.setItem(SIDEBAR_KEY, collapsed ? "1" : "0");
     // v0.5.62 — 펼친 직후 chat composer/Look-up이 침범당하지 않도록 cap 재적용.
     // (Look-up이 열려있는 상태에서 사이드바 펼침 시 발생할 수 있는 케이스)
@@ -411,15 +549,31 @@ function wireSidebar() {
     }
   }
   // 초기 상태 복원
-  if (localStorage.getItem(SIDEBAR_KEY) === "1") {
-    setSidebarCollapsed(true, false);
-  }
+  const storedSidebarState = localStorage.getItem(SIDEBAR_KEY);
+  const compactViewport = window.matchMedia("(max-width: 820px)").matches;
+  const syncSidebarScrimTabIndex = () => {
+    if (!els.sidebarScrim) return;
+    const isMobile = window.matchMedia("(max-width: 820px)").matches;
+    const isOpen =
+      !document.body.classList.contains("sidebar-collapsed");
+    els.sidebarScrim.tabIndex = isMobile && isOpen ? 0 : -1;
+  };
+  setSidebarCollapsed(
+    storedSidebarState === "1" ||
+      (storedSidebarState == null && compactViewport),
+    false,
+  );
+  window.addEventListener("resize", syncSidebarScrimTabIndex);
   if (els.sidebarToggle) {
     els.sidebarToggle.addEventListener("click", () => {
       const isCollapsed = document.body.classList.contains("sidebar-collapsed");
       setSidebarCollapsed(!isCollapsed);
     });
   }
+  els.sidebarScrim?.addEventListener("click", () => {
+    setSidebarCollapsed(true);
+    els.sidebarToggle?.focus();
+  });
   // Cmd/Ctrl + B 토글
   document.addEventListener("keydown", (e) => {
     if ((e.metaKey || e.ctrlKey) && (e.key === "b" || e.key === "B")) {
@@ -427,6 +581,36 @@ function wireSidebar() {
       const isCollapsed = document.body.classList.contains("sidebar-collapsed");
       setSidebarCollapsed(!isCollapsed);
     }
+    if (e.key === "Escape") {
+      if (
+        window.matchMedia("(max-width: 820px)").matches &&
+        !document.body.classList.contains("sidebar-collapsed")
+      ) {
+        setSidebarCollapsed(true);
+        els.sidebarToggle?.focus();
+      }
+      document
+        .querySelectorAll(".chapter-actions.actions-open")
+        .forEach((actions) => {
+          actions.classList.remove("actions-open");
+          actions
+            .querySelector(".chapter-actions-toggle")
+            ?.setAttribute("aria-expanded", "false");
+        });
+    }
+  });
+  document.addEventListener("click", (e) => {
+    if (e.target instanceof Element && e.target.closest(".chapter-actions")) {
+      return;
+    }
+    document
+      .querySelectorAll(".chapter-actions.actions-open")
+      .forEach((actions) => {
+        actions.classList.remove("actions-open");
+        actions
+          .querySelector(".chapter-actions-toggle")
+          ?.setAttribute("aria-expanded", "false");
+      });
   });
 
   // 사이드바 너비 조절 (드래그 핸들)
@@ -480,6 +664,25 @@ function wireSidebar() {
   const resizer = document.getElementById("sidebar-resizer");
   if (resizer) {
     let dragging = false;
+    const updateSidebarResizerValue = (width) => {
+      resizer.setAttribute("aria-valuenow", String(Math.round(width)));
+    };
+    const setSidebarWidth = (width, persist = false) => {
+      const w = Math.max(
+        SIDEBAR_MIN,
+        Math.min(_sidebarMaxForViewport(), width),
+      );
+      document.body.style.setProperty("--sidebar-w", `${w}px`);
+      updateSidebarResizerValue(w);
+      if (persist) localStorage.setItem(SIDEBAR_WIDTH_KEY, String(w));
+      return w;
+    };
+    const initialWidth =
+      parseInt(
+        getComputedStyle(document.body).getPropertyValue("--sidebar-w"),
+        10,
+      ) || SIDEBAR_DEFAULT;
+    updateSidebarResizerValue(initialWidth);
     resizer.addEventListener("mousedown", (e) => {
       e.preventDefault();
       dragging = true;
@@ -488,11 +691,7 @@ function wireSidebar() {
     document.addEventListener("mousemove", (e) => {
       if (!dragging) return;
       // v0.5.62 — 드래그 시도 cap 적용 (chat 영역 침범 방지)
-      const w = Math.max(
-        SIDEBAR_MIN,
-        Math.min(_sidebarMaxForViewport(), e.clientX),
-      );
-      document.body.style.setProperty("--sidebar-w", `${w}px`);
+      setSidebarWidth(e.clientX);
     });
     document.addEventListener("mouseup", () => {
       if (!dragging) return;
@@ -501,10 +700,29 @@ function wireSidebar() {
       const w = document.body.style.getPropertyValue("--sidebar-w");
       if (w) localStorage.setItem(SIDEBAR_WIDTH_KEY, w.trim());
     });
+    resizer.addEventListener("keydown", (e) => {
+      if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(e.key)) {
+        return;
+      }
+      e.preventDefault();
+      const current =
+        parseInt(
+          getComputedStyle(document.body).getPropertyValue("--sidebar-w"),
+          10,
+        ) || SIDEBAR_DEFAULT;
+      const next =
+        e.key === "Home"
+          ? SIDEBAR_MIN
+          : e.key === "End"
+            ? _sidebarMaxForViewport()
+            : current + (e.key === "ArrowRight" ? 12 : -12);
+      setSidebarWidth(next, true);
+    });
     // 더블클릭으로 기본 너비 복원
     resizer.addEventListener("dblclick", () => {
       document.body.style.removeProperty("--sidebar-w");
       localStorage.removeItem(SIDEBAR_WIDTH_KEY);
+      updateSidebarResizerValue(SIDEBAR_DEFAULT);
     });
   }
 
@@ -532,9 +750,8 @@ function wireSidePanels() {
   if (window.spiralSettings) {
     initSettings();
   } else {
-    // 브라우저 모드 (pnpm dev) — 설정 버튼 숨김, 워크스페이스 셀렉터 숨김
+    // 브라우저 모드 (pnpm dev) — Electron 설정은 사용할 수 없음
     els.settingsBtn?.classList.add("hidden");
-    document.getElementById("workspace-section")?.classList.add("hidden");
   }
 
   // Look-up 기능 (사이드 학습)
@@ -598,15 +815,30 @@ function wireSidePanels() {
   }
 
   // Cmd/Ctrl+K — 검색 모달
+  els.commandSearchBtn?.addEventListener("click", openSearchModal);
   document.addEventListener("keydown", (e) => {
     if ((e.metaKey || e.ctrlKey) && (e.key === "k" || e.key === "K")) {
       e.preventDefault();
       openSearchModal();
     }
-    if (e.key === "Escape" && els.activityModal && !els.activityModal.classList.contains("hidden")) {
+    if (
+      e.key === "Escape" &&
+      els.searchModal &&
+      !els.searchModal.classList.contains("hidden")
+    ) {
+      e.preventDefault();
+      closeSearchModal();
+    } else if (
+      e.key === "Escape" &&
+      els.activityModal &&
+      !els.activityModal.classList.contains("hidden")
+    ) {
       closeActivityModal();
-    }
-    if (e.key === "Escape" && els.rulesModal && !els.rulesModal.classList.contains("hidden")) {
+    } else if (
+      e.key === "Escape" &&
+      els.rulesModal &&
+      !els.rulesModal.classList.contains("hidden")
+    ) {
       closeRulesModal();
     }
   });
@@ -614,19 +846,24 @@ function wireSidePanels() {
     els.searchModal.addEventListener("click", (e) => {
       if (e.target === els.searchModal) closeSearchModal();
     });
+    els.searchModal.addEventListener("keydown", trapSearchModalFocus);
   }
+  els.searchCloseBtn?.addEventListener("click", closeSearchModal);
   if (els.searchInput) {
-    let debounceTimer = null;
     els.searchInput.addEventListener("input", () => {
-      clearTimeout(debounceTimer);
+      clearTimeout(_searchState.debounceTimer);
       const q = els.searchInput.value;
-      debounceTimer = setTimeout(() => runSearch(q), 150);
+      _searchState.inflight = null;
+      _searchState.lastQuery = "";
+      clearSearchResults();
+      if (q.trim().length < 2) {
+        setSearchStatus(q.trim() ? "한 글자 더 입력하세요." : "");
+        return;
+      }
+      _searchState.debounceTimer = setTimeout(() => runSearch(q), 150);
     });
     els.searchInput.addEventListener("keydown", (e) => {
-      if (e.key === "Escape") {
-        e.preventDefault();
-        closeSearchModal();
-      } else if (e.key === "ArrowDown") {
+      if (e.key === "ArrowDown") {
         e.preventDefault();
         moveSearchSelection(1);
       } else if (e.key === "ArrowUp") {
@@ -640,17 +877,101 @@ function wireSidePanels() {
   }
 }
 
+function setRoadmapListOpen(open) {
+  els.roadmapList?.classList.toggle("hidden", !open);
+  els.roadmapCurrent?.setAttribute("aria-expanded", String(open));
+  els.topbar
+    ?.querySelector(".current-chapter-jump")
+    ?.setAttribute("aria-expanded", String(open));
+}
+
+function clearSidebarSearchForNavigation() {
+  cancelSidebarSearchPending();
+  state.sidebarQuery = "";
+  if (els.sidebarSearch) els.sidebarSearch.value = "";
+  els.sidebarSearchClear?.classList.add("hidden");
+  if (els.sidebarSearchMeta) {
+    els.sidebarSearchMeta.textContent = "";
+    els.sidebarSearchMeta.classList.add("hidden");
+  }
+  state._searchExpandedForQuery = null;
+  state._searchExpandedDoms = null;
+  state._searchExpandedCats = null;
+  state._searchExpandedRepos = null;
+}
+
+function expandActiveRoadmapPath() {
+  const active = state.roadmaps.find((r) => r.id === state.activeRoadmapId);
+  if (!active || active.source === "curated") return;
+  const domName = active.domain?.name ?? "기타";
+  const catName = active.category?.name ?? "Uncategorized";
+  const { repo } = parseHierarchy(active);
+  state.expandedLocalDomains.add(domName);
+  state.expandedLocalCategories.add(`${domName}::${catName}`);
+  state.expandedLocalRepos.add(`${domName}::${catName}::${repo}`);
+  state.lastAutoExpandedRoadmapId = active.id;
+}
+
+function scrollActiveRoadmapIntoView() {
+  if (!state.activeRoadmapId || !els.roadmapList) return false;
+  const activeId = cssEscape(state.activeRoadmapId);
+  const target = els.roadmapList.querySelector(
+    `.roadmap-item[data-id="${activeId}"], .repo-header[data-flat-roadmap-id="${activeId}"]`,
+  );
+  if (!target || typeof target.scrollIntoView !== "function") return false;
+  target.classList.add("roadmap-reveal-target");
+  target.scrollIntoView({ block: "center", behavior: "smooth" });
+  setTimeout(() => target.classList.remove("roadmap-reveal-target"), 1400);
+  return true;
+}
+
+function revealActiveLearningLocation() {
+  if (document.body.classList.contains("sidebar-collapsed")) {
+    els.sidebarToggle?.click();
+  }
+  clearSidebarSearchForNavigation();
+  expandActiveRoadmapPath();
+  renderRoadmapSelector();
+  renderChapters();
+  setRoadmapListOpen(true);
+  requestAnimationFrame(() => {
+    requestAnimationFrame(() => {
+      if (!scrollActiveRoadmapIntoView()) {
+        setTimeout(scrollActiveRoadmapIntoView, 80);
+      }
+    });
+  });
+}
+
 function wireRoadmapDropdown() {
-  els.roadmapCurrent.addEventListener("click", () => {
-    els.roadmapList.classList.toggle("hidden");
+  els.roadmapCurrent.addEventListener("click", (event) => {
+    // renderRoadmapSelector() replaces the clicked button's children. Without
+    // stopping propagation, the document-level outside-click handler sees the
+    // detached original target and immediately closes the freshly opened tree.
+    event.stopPropagation();
+    const shouldOpen = els.roadmapList.classList.contains("hidden");
+    if (shouldOpen) {
+      revealActiveLearningLocation();
+    } else {
+      setRoadmapListOpen(false);
+    }
+  });
+  els.topbar?.addEventListener("click", (event) => {
+    if (!event.target.closest(".current-chapter-jump")) return;
+    revealActiveLearningLocation();
   });
   // 클릭 외부 시 닫기
   document.addEventListener("click", (e) => {
+    const currentChapterTrigger =
+      e.target instanceof Element
+        ? e.target.closest(".current-chapter-jump")
+        : null;
     if (
       !els.roadmapCurrent.contains(e.target) &&
-      !els.roadmapList.contains(e.target)
+      !els.roadmapList.contains(e.target) &&
+      !currentChapterTrigger
     ) {
-      els.roadmapList.classList.add("hidden");
+      setRoadmapListOpen(false);
     }
   });
 }
@@ -667,17 +988,112 @@ function wireBeforeUnload() {
   });
 }
 
+let _initialLoadEpoch = 0;
+let _initialLoadController = null;
+let _roadmapLoadEpoch = 0;
+let _roadmapLoadController = null;
+
+function isAbortedRequest(error, signal) {
+  return Boolean(signal?.aborted || error?.name === "AbortError");
+}
+
+function readableLoadError(error) {
+  if (error instanceof FetchTimeoutError) {
+    return "응답이 늦어 연결을 멈췄어요";
+  }
+  return error?.message ? String(error.message) : "알 수 없는 오류";
+}
+
+function renderLoadFailure(container, message, retry, { listItem = false } = {}) {
+  if (!container) return;
+  const wrapper = document.createElement(listItem ? "li" : "div");
+  wrapper.className = "load-error";
+  const text = document.createElement("span");
+  text.textContent = message;
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = "load-retry";
+  button.textContent = "다시 시도";
+  button.addEventListener("click", retry);
+  wrapper.append(text, button);
+  container.replaceChildren(wrapper);
+}
+
+function renderInitialLoadFailure(error) {
+  const reason = readableLoadError(error);
+  const retry = () => loadInitial();
+  const currentName = els.roadmapCurrent?.querySelector(".roadmap-name");
+  if (currentName) currentName.textContent = "로드맵을 불러오지 못했어요";
+  renderLoadFailure(
+    els.chapterList,
+    `학습 순서를 불러오지 못했어요 · ${reason}`,
+    retry,
+    { listItem: true },
+  );
+  renderLoadFailure(
+    els.historyList,
+    `지난 기록을 불러오지 못했어요 · ${reason}`,
+    retry,
+    { listItem: true },
+  );
+  if (!state.session && els.messages) {
+    renderLearningHub();
+  }
+  setStatus(`처음 화면을 불러오지 못했어요: ${reason}`, "error");
+}
+
 async function loadInitial() {
+  _initialLoadController?.abort();
+  const controller = new AbortController();
+  _initialLoadController = controller;
+  const epoch = ++_initialLoadEpoch;
+  const isCurrent = () =>
+    epoch === _initialLoadEpoch && !controller.signal.aborted;
+
+  if (!state.session) renderLearningHub({ loading: true });
+  const currentName = els.roadmapCurrent?.querySelector(".roadmap-name");
+  if (currentName) currentName.textContent = "불러오는 중…";
+  els.chapterList.innerHTML = `<li class="loading">불러오는 중…</li>`;
+  els.historyList.innerHTML = `<li class="loading">불러오는 중…</li>`;
   try {
-    const [config, roadmaps, modelsData] = await Promise.all([
-      fetch("/api/config").then((r) => r.json()),
-      fetch("/api/roadmaps")
-        .then((r) => r.json())
-        .catch(() => []),
-      fetch("/api/models").then((r) => r.json()).catch(() => null),
+    // 세 요청은 동시에 시작하되, 작고 빠른 설정/모델 응답을 먼저 반영한다.
+    // 로드맵의 대규모 파일 탐색이 늦어도 설정 UI까지 함께 멈추지 않는다.
+    const configPromise = fetchJson("/api/config", {
+      signal: controller.signal,
+      timeoutMs: 8_000,
+      retries: 1,
+    });
+    const modelsPromise = fetchJson("/api/models", {
+      signal: controller.signal,
+      timeoutMs: 8_000,
+      retries: 1,
+    }).catch((error) => {
+      if (isAbortedRequest(error, controller.signal)) throw error;
+      return null;
+    });
+    // config가 먼저 실패해 함수가 빠져나가더라도 roadmaps rejection이
+    // unhandled로 남지 않게 결과 객체로 정규화한다.
+    const roadmapsPromise = fetchJson("/api/roadmaps", {
+      signal: controller.signal,
+      timeoutMs: 35_000,
+      retries: 1,
+    }).then(
+      (value) => ({ ok: true, value }),
+      (error) => ({ ok: false, error }),
+    );
+
+    const [config, modelsData] = await Promise.all([
+      configPromise,
+      modelsPromise,
     ]);
+    if (!isCurrent()) return;
     state.config = config;
     state.curatedOrg = config?.curatedOrg ?? null;
+
+    const roadmapsResult = await roadmapsPromise;
+    if (!roadmapsResult.ok) throw roadmapsResult.error;
+    const roadmaps = roadmapsResult.value;
+    if (!isCurrent()) return;
     state.roadmaps = Array.isArray(roadmaps) ? roadmaps : [];
 
     // 모델 목록 + 선택 상태
@@ -697,6 +1113,7 @@ async function loadInitial() {
         "error",
       );
       renderRoadmapSelector();
+      renderLearningHub();
       return;
     }
 
@@ -715,17 +1132,27 @@ async function loadInitial() {
     renderRoadmapSelector();
     if (state.activeRoadmapId) {
       await loadRoadmapData();
+      if (!isCurrent()) return;
       scrollToRecentChapter();
     } else {
       // 설치된 로드맵 없으면 placeholder + curated 가능 목록 자동 로드
-      els.chapterList.innerHTML = `<li class="empty">로드맵 설치 안 됨. 위 셀렉터에서 "받기 가능" 펼쳐 큐레이션 로드맵을 받으세요.</li>`;
+      els.chapterList.innerHTML = `<li class="empty">아직 학습 경로가 없어요. 현재 경로 메뉴나 설정에서 자료를 추가해 주세요.</li>`;
       els.historyList.innerHTML = `<li class="empty">—</li>`;
-      els.suggestion.innerHTML = `<div class="empty">먼저 로드맵을 설치하세요</div>`;
+      // 원격 추천 목록은 느리거나 실패할 수 있으므로 홈 화면을 먼저 연다.
+      renderLearningHub();
       // curated available 자동 fetch
       await loadCuratedAvailable();
     }
   } catch (err) {
-    setStatus(`Initial load failed: ${err.message}`, "error");
+    if (isAbortedRequest(err, controller.signal)) return;
+    if (isCurrent()) {
+      renderInitialLoadFailure(err);
+      controller.abort();
+    }
+  } finally {
+    if (_initialLoadController === controller) {
+      _initialLoadController = null;
+    }
   }
 }
 
@@ -735,68 +1162,95 @@ async function loadCuratedAvailable(force = false) {
     const url = force
       ? "/api/curated/available?refresh=1"
       : "/api/curated/available";
-    const res = await fetch(url);
-    if (!res.ok) {
-      const errBody = await res.json().catch(() => ({}));
-      throw new Error(errBody.error ?? `HTTP ${res.status}`);
-    }
-    const data = await res.json();
+    const data = await fetchJson(url, { timeoutMs: 20_000, retries: 1 });
     state.curatedAvailable = data.repos ?? [];
     state.curatedGroups = data.groups ?? [];
     renderRoadmapSelector();
   } catch (err) {
     state.curatedAvailable = [];
     state.curatedGroups = [];
-    setStatus(`Curated 목록 로드 실패: ${err.message}`, "error");
+    setStatus(`추천 로드맵 목록을 불러오지 못했어요: ${err.message}`, "error");
   }
 }
 
 /** 현재 active 로드맵의 챕터/노트/추천을 모두 로드 */
 async function loadRoadmapData() {
   if (!state.activeRoadmapId) return;
-  const q = `?roadmap_id=${encodeURIComponent(state.activeRoadmapId)}`;
+  _roadmapLoadController?.abort();
+  const controller = new AbortController();
+  _roadmapLoadController = controller;
+  const epoch = ++_roadmapLoadEpoch;
+  const roadmapId = state.activeRoadmapId;
+  const q = `?roadmap_id=${encodeURIComponent(roadmapId)}`;
+  const isCurrent = () =>
+    epoch === _roadmapLoadEpoch &&
+    roadmapId === state.activeRoadmapId &&
+    !controller.signal.aborted;
 
-  els.chapterList.innerHTML = `<li class="loading">loading…</li>`;
-  els.historyList.innerHTML = `<li class="loading">loading…</li>`;
-  // suggestion 영역은 일단 숨겨두고 chapters 확인 후 결정
-  els.suggestion.classList.remove("hidden");
-  els.suggestion.innerHTML = `<div class="loading">🧭 Analyzing trajectory…</div>`;
-
-  try {
-    const [chaptersRes, historyRes] = await Promise.all([
-      fetch(`/api/chapters${q}`).then((r) => r.json()),
-      fetch(`/api/history${q}`).then((r) => r.json()),
-    ]);
-
-    state.chapters = chaptersRes.chapters ?? [];
-    state.history = Array.isArray(historyRes) ? historyRes : [];
-
-    renderChapters();
-    renderHistory();
-
-    // 다음 챕터 카드(suggestion)는 첫 진행 시에만 띄움.
-    // 이미 visited 챕터가 있으면(= 한 번이라도 학습 진행) 노이즈가 되므로 영역 자체 숨김.
-    // 사용자는 그 후엔 사이드바 챕터 리스트에서 직접 선택.
-    const visitedCount = state.chapters.filter(
-      (c) => (c.maxDepth ?? 0) > 0,
-    ).length;
-    if (visitedCount > 0) {
-      els.suggestion.classList.add("hidden");
-      state.suggestion = null;
-    } else {
-      // suggestion은 비동기로
-      fetch(`/api/suggest${q}`)
-        .then((r) => r.json())
-        .then((suggestion) => {
-          state.suggestion = suggestion;
-          renderSuggestion();
-        })
-        .catch(() => {
-          els.suggestion.innerHTML = `<div class="empty">suggestion 불러오기 실패</div>`;
-        });
+  // 다른 로드맵의 완료/최근 상태가 새 로드맵의 로딩 화면에 섞이지 않게 한다.
+  state.chapters = [];
+  state.history = [];
+  els.chapterList.innerHTML = `<li class="loading">불러오는 중…</li>`;
+  els.historyList.innerHTML = `<li class="loading">불러오는 중…</li>`;
+  const chaptersTask = (async () => {
+    try {
+      const chaptersRes = await fetchJson(`/api/chapters${q}`, {
+        signal: controller.signal,
+        timeoutMs: 25_000,
+        retries: 1,
+      });
+      if (!isCurrent()) return;
+      state.chapters = chaptersRes.chapters ?? [];
+      renderChapters();
+      if (!state.session) renderLearningHub();
+    } catch (error) {
+      if (isAbortedRequest(error, controller.signal) || !isCurrent()) return;
+      const reason = readableLoadError(error);
+      state.chapters = [];
+      renderLoadFailure(
+        els.chapterList,
+        `학습 순서를 불러오지 못했어요 · ${reason}`,
+        () => loadRoadmapData(),
+        { listItem: true },
+      );
+      if (!state.session) renderLearningHub();
+      setStatus(`학습 순서 로드 실패: ${reason}`, "error");
     }
-  } catch (err) {
-    setStatus(`로드맵 데이터 로드 실패: ${err.message}`, "error");
+  })();
+
+  const historyTask = (async () => {
+    try {
+      const historyRes = await fetchJson(`/api/history${q}`, {
+        signal: controller.signal,
+        timeoutMs: 25_000,
+        retries: 1,
+      });
+      if (!isCurrent()) return;
+      state.history = Array.isArray(historyRes) ? historyRes : [];
+      renderHistory();
+      // chapters/history는 병렬 조회된다. history가 나중에 도착하면 실제 수정
+      // 시각으로 계산한 "마지막" 표시를 다시 반영한다.
+      if (state.chapters.length > 0) renderChapters();
+      if (!state.session) renderLearningHub();
+    } catch (error) {
+      if (isAbortedRequest(error, controller.signal) || !isCurrent()) return;
+      const reason = readableLoadError(error);
+      state.history = [];
+      renderLoadFailure(
+        els.historyList,
+        `지난 기록을 불러오지 못했어요 · ${reason}`,
+        () => loadRoadmapData(),
+        { listItem: true },
+      );
+      if (!state.session) renderLearningHub();
+      setStatus(`지난 기록 로드 실패: ${reason}`, "error");
+    }
+  })();
+
+  await Promise.allSettled([chaptersTask, historyTask]);
+  if (isCurrent() && !state.session) renderLearningHub();
+  if (_roadmapLoadController === controller) {
+    _roadmapLoadController = null;
   }
 }
 
@@ -861,16 +1315,21 @@ function renderSubRoadmapItem(r, idx) {
     r.chapterCount > 0
       ? Math.min(100, Math.round((r.visitedChapters / r.chapterCount) * 100))
       : 0;
+  const progressLabel = `${r.visitedChapters}/${r.chapterCount}`;
+  const lastDateLabel =
+    lastDate === "—" ? "최근 학습 기록 없음" : `마지막 학습 ${lastDate}`;
+  const accessibleLabel = `${displayName}, ${progressLabel} 챕터, ${lastDateLabel}`;
   return `
-                  <button class="roadmap-item sub-roadmap-item ${isActive ? "active" : ""}" data-id="${escapeAttr(r.id)}" data-roadmap-title="${escapeAttr(displayName)}" data-depths="${escapeAttr((r.depths ?? []).join(","))}">
-                    <div class="roadmap-item-name"><span class="sub-roadmap-index">${idx + 1}.</span> ${escapeHtml(displayName)}</div>
-                    <div class="progress-mini" aria-hidden="true"><div class="progress-fill" style="width:${pct}%"></div></div>
-                    <div class="roadmap-item-meta">
-                      ${depthBadge}
-                      <span class="roadmap-item-progress">${r.visitedChapters}/${r.chapterCount}</span>
-                      <span class="roadmap-item-date">${escapeHtml(lastDate)}</span>
-                      ${trashBtn}
+                  <button class="roadmap-item sub-roadmap-item ${isActive ? "active" : ""}" data-id="${escapeAttr(r.id)}" data-roadmap-title="${escapeAttr(displayName)}" data-depths="${escapeAttr((r.depths ?? []).join(","))}" title="${escapeAttr(lastDateLabel)}" aria-label="${escapeAttr(accessibleLabel)}">
+                    <div class="roadmap-item-heading">
+                      <div class="roadmap-item-name"><span class="sub-roadmap-index">${idx + 1}.</span> ${escapeHtml(displayName)}</div>
+                      <div class="roadmap-item-brief">
+                        ${depthBadge}
+                        <span class="roadmap-item-progress">${progressLabel}</span>
+                        ${trashBtn}
+                      </div>
                     </div>
+                    <div class="progress-mini" aria-hidden="true"><div class="progress-fill" style="width:${pct}%"></div></div>
                   </button>
                 `;
 }
@@ -1040,7 +1499,7 @@ function renderDomainNode(domName, domEntry, catMeta) {
         <div class="local-domain">
           <button class="domain-header" data-local-dom="${escapeAttr(domName)}" ${domStyle}>
             <span class="cat-caret">${domCaret}</span>
-            ${categoryIconHtml({ name: dom.name })}
+            ${categoryIconHtml(dom)}
             <span class="dom-name">${escapeHtml(dom.name)}</span>
             ${domDepthBadge}
             <span class="dom-count">${domCountText}</span>
@@ -1052,15 +1511,24 @@ function renderDomainNode(domName, domEntry, catMeta) {
 
 function renderRoadmapSelector() {
   const active = state.roadmaps.find((r) => r.id === state.activeRoadmapId);
-  const activeName = active?.name ?? "선택된 로드맵 없음";
+  const activeName = active
+    ? displayRepoName(active.name)
+    : "선택된 로드맵 없음";
   const activeProgress = active
     ? `${active.visitedChapters}/${active.chapterCount}`
     : "";
-  const activeSrc = active?.source === "curated" ? "📚" : "📁";
+  const activeIcon = active
+    ? roadmapIconHtml({
+        name: activeName,
+        category: active.category,
+        domain: active.domain,
+        source: active.source,
+      })
+    : "";
 
   els.roadmapCurrent.innerHTML = `
     <div class="roadmap-current-inner">
-      <span class="roadmap-name">${active ? activeSrc + " " : ""}${escapeHtml(displayRoadmapName(activeName))}</span>
+      <span class="roadmap-name">${activeIcon}<span class="roadmap-name-text">${escapeHtml(activeName)}</span></span>
       ${active ? `<span class="roadmap-progress">${activeProgress}</span>` : ""}
     </div>
     <span class="caret">▼</span>
@@ -1184,20 +1652,6 @@ function renderRoadmapSelector() {
       state._searchExpandedCats = null;
       state._searchExpandedRepos = null;
     }
-    const totalCats = sortedDomains.reduce(
-      (sum, [, e]) => sum + e.cats.size,
-      0,
-    );
-    const totalRepos = sortedDomains.reduce(
-      (sum, [, e]) =>
-        sum +
-        Array.from(e.cats.values()).reduce((s2, m) => s2 + m.size, 0),
-      0,
-    );
-    parts.push(
-      `<div class="roadmap-group-title">${groupIconHtml("folder")}<span>Local · ${sortedDomains.length} domains · ${totalCats} categories · ${totalRepos} repos · ${local.length} roadmaps</span></div>`,
-    );
-
     for (const [domName, domEntry] of sortedDomains) {
       parts.push(renderDomainNode(domName, domEntry, catMeta));
     }
@@ -1205,7 +1659,7 @@ function renderRoadmapSelector() {
 
   if (curated.length > 0) {
     parts.push(
-      `<div class="roadmap-group-title">${groupIconHtml("database")}<span>Curated · ${escapeHtml(state.curatedOrg ?? "")} (${curated.length})</span></div>`,
+      `<div class="roadmap-group-title">${groupIconHtml("database")}<span>추천 로드맵 · ${escapeHtml(state.curatedOrg ?? "")} (${curated.length})</span></div>`,
     );
     parts.push(curated.map(roadmapItemHtml).join(""));
   }
@@ -1245,7 +1699,7 @@ function renderRoadmapSelector() {
         );
       } else if (totalAvailable === 0) {
         parts.push(
-          `<div class="empty curated-empty">모든 Curated 레포가 이미 설치됨 · <a href="#" id="curated-refresh">새로고침</a></div>`,
+          `<div class="empty curated-empty">추천 저장소를 모두 받았어요 · <a href="#" id="curated-refresh">새로고침</a></div>`,
         );
       } else {
         parts.push(
@@ -1330,7 +1784,8 @@ function wireRoadmapListEvents() {
       }
       const id = btn.dataset.id;
       if (id === state.activeRoadmapId) {
-        els.roadmapList.classList.add("hidden");
+        setRoadmapListOpen(false);
+        scrollToRecentChapter();
         return;
       }
       switchRoadmap(id);
@@ -1357,7 +1812,7 @@ function wireRoadmapListEvents() {
     refresh.addEventListener("click", async (e) => {
       e.preventDefault();
       e.stopPropagation();
-      setStatus("Curated 목록 새로고침 중…");
+      setStatus("추천 로드맵 목록을 새로고침하는 중…");
       await loadCuratedAvailable(true);
       setStatus("");
     });
@@ -1446,7 +1901,8 @@ function wireRoadmapListEvents() {
       e.stopPropagation();
       const id = btn.dataset.flatRoadmapId;
       if (id === state.activeRoadmapId) {
-        els.roadmapList.classList.add("hidden");
+        setRoadmapListOpen(false);
+        scrollToRecentChapter();
         return;
       }
       switchRoadmap(id);
@@ -1459,15 +1915,23 @@ function roadmapItemHtml(r) {
   const lastDate = r.lastDate ?? "—";
   const depthBadge =
     r.maxDepth > 0 ? `<span class="depth-pill">d${r.maxDepth}</span>` : "";
+  const pct =
+    r.chapterCount > 0
+      ? Math.min(100, Math.round((r.visitedChapters / r.chapterCount) * 100))
+      : 0;
+  const progressLabel = `${r.visitedChapters}/${r.chapterCount}`;
+  const lastDateLabel =
+    lastDate === "—" ? "최근 학습 기록 없음" : `마지막 학습 ${lastDate}`;
   return `
-    <button class="roadmap-item ${isActive ? "active" : ""}" data-id="${escapeAttr(r.id)}">
-      <div class="roadmap-item-name">${escapeHtml(displayRoadmapName(r.name))}</div>
-      <div class="roadmap-item-meta">
-        ${depthBadge}
-        <span class="roadmap-item-progress">${r.visitedChapters}/${r.chapterCount}</span>
-        <span class="roadmap-item-date">${escapeHtml(lastDate)}</span>
+    <button class="roadmap-item ${isActive ? "active" : ""}" data-id="${escapeAttr(r.id)}" title="${escapeAttr(lastDateLabel)}" aria-label="${escapeAttr(`${r.name}, ${progressLabel} 챕터, ${lastDateLabel}`)}">
+      <div class="roadmap-item-heading">
+        <div class="roadmap-item-name">${escapeHtml(r.name)}</div>
+        <div class="roadmap-item-brief">
+          ${depthBadge}
+          <span class="roadmap-item-progress">${progressLabel}</span>
+        </div>
       </div>
-      <div class="roadmap-item-id">${escapeHtml(r.id)}</div>
+      <div class="progress-mini" aria-hidden="true"><div class="progress-fill" style="width:${pct}%"></div></div>
     </button>
   `;
 }
@@ -1627,7 +2091,7 @@ async function _handleSessionInterruptionBody() {
     state.messages = [];
     enableSessionUi(false);
     updateTopbar();
-    els.messages.innerHTML = `<div class="placeholder"><p>왼쪽에서 챕터를 골라 세션을 시작하세요.</p></div>`;
+    renderLearningHub();
     // v0.5.105 — "저장하고 이동" 후에도 사이드바 "마지막"/depth 배지를 즉시 갱신.
     // (endSession 경로는 loadRoadmapData로 갱신하지만 이 경로는 roadmaps만 갱신해
     //  방금 저장한 챕터가 재시작 전까지 stale로 남았음.) session=null 이후라 방금
@@ -1635,6 +2099,8 @@ async function _handleSessionInterruptionBody() {
     if (action === "save" && state.activeRoadmapId) {
       await loadRoadmapData();
       refreshActivityBadge();
+    } else {
+      renderLearningHub();
     }
   }
   return "continue";
@@ -1691,19 +2157,12 @@ async function switchRoadmap(roadmapId) {
 
   state.activeRoadmapId = roadmapId;
   localStorage.setItem(LS_KEY, roadmapId);
-  els.roadmapList.classList.add("hidden");
+  setRoadmapListOpen(false);
 
   // v0.5.56 — 검색으로 들어온 경우, 챕터 리스트도 검색어로 필터돼서 비어 보임.
   // 사용자가 검색해서 로드맵을 골랐으면 검색 의도는 끝난 셈 — 자동으로 해제.
   if (state.sidebarQuery) {
-    state.sidebarQuery = "";
-    if (els.sidebarSearch) els.sidebarSearch.value = "";
-    els.sidebarSearchClear?.classList.add("hidden");
-    if (els.sidebarSearchMeta) {
-      els.sidebarSearchMeta.classList.add("hidden");
-      els.sidebarSearchMeta.textContent = "";
-    }
-    // search-expanded 셋은 다음 렌더 때 자동으로 null로 reset됨.
+    clearSidebarSearchForNavigation();
   }
 
   renderRoadmapSelector();
@@ -1721,16 +2180,15 @@ async function switchRoadmap(roadmapId) {
  */
 function scrollToRecentChapter() {
   if (!Array.isArray(state.chapters) || state.chapters.length === 0) return;
-  // v0.4.7 — 진행 중 세션이 있으면 그 챕터로, 없으면 마지막 저장 챕터로 스크롤.
-  const activeId = state.session?.chapterId ?? null;
-  let target = activeId
-    ? state.chapters.find((c) => c.id === activeId)
+  // v0.5.98 — 진행 중 세션의 챕터 우선, 없으면 마지막 학습 챕터로 스크롤.
+  let target = state.session?.chapterId
+    ? state.chapters.find((c) => c.id === state.session.chapterId)
     : null;
   if (!target) {
-    const visited = state.chapters
-      .filter((c) => c.lastDate)
-      .sort((a, b) => (b.lastDate ?? "").localeCompare(a.lastDate ?? ""));
-    target = visited[0];
+    const recentChapterId = getRecentChapterId();
+    target = recentChapterId
+      ? state.chapters.find((chapter) => chapter.id === recentChapterId)
+      : null;
   }
   if (!target) return;
   const tryScroll = () => {
@@ -1866,9 +2324,19 @@ function toggleMicGuide() {
   setTimeout(() => document.addEventListener("click", _micOutsideClick), 0);
 }
 
+// v0.5.51 — 사이드바 검색 wire-up.
+// 디바운스로 input 부담 줄이고, 변경 시 로드맵 셀렉터 + 챕터 리스트 둘 다 갱신.
+let cancelSidebarSearchPending = () => {};
+
 function initSidebarSearch() {
   if (!els.sidebarSearch) return;
   let timer = null;
+  const shortcut = document.getElementById("sidebar-search-kbd");
+  const isMac =
+    /Mac|iPhone|iPad|iPod/i.test(navigator.platform ?? "") ||
+    /Mac OS/i.test(navigator.userAgent ?? "");
+  if (shortcut) shortcut.textContent = isMac ? "⌘ F" : "Ctrl F";
+
   const apply = (raw) => {
     const q = (raw ?? "").trim();
     const prev = state.sidebarQuery ?? "";
@@ -1877,15 +2345,15 @@ function initSidebarSearch() {
     els.sidebarSearchClear?.classList.toggle("hidden", q.length === 0);
     // 검색 시작 시 roadmap-list 자동 노출 → 결과를 바로 볼 수 있게
     if (q) {
-      els.roadmapList?.classList.remove("hidden");
+      setRoadmapListOpen(true);
     }
     renderRoadmapSelector();
     renderChapters();
     // 매칭 수 카운트 표시
     if (els.sidebarSearchMeta) {
       if (!q) {
-        els.sidebarSearchMeta.classList.add("hidden");
         els.sidebarSearchMeta.textContent = "";
+        els.sidebarSearchMeta.classList.add("hidden");
       } else {
         const ql = q.toLowerCase();
         const roadmapHits = state.roadmaps.filter((r) => {
@@ -1907,14 +2375,23 @@ function initSidebarSearch() {
       }
     }
   };
-  els.sidebarSearch.addEventListener("input", (e) => {
+  const cancelPending = () => {
     if (timer) clearTimeout(timer);
+    timer = null;
+  };
+  cancelSidebarSearchPending = cancelPending;
+  els.sidebarSearch.addEventListener("input", (e) => {
+    cancelPending();
     const val = e.target.value;
-    timer = setTimeout(() => apply(val), 100);
+    timer = setTimeout(() => {
+      timer = null;
+      apply(val);
+    }, 100);
   });
   // Esc → 검색어 비우기 + 포커스 해제
   els.sidebarSearch.addEventListener("keydown", (e) => {
     if (e.key === "Escape") {
+      cancelPending();
       els.sidebarSearch.value = "";
       apply("");
       els.sidebarSearch.blur();
@@ -1922,6 +2399,7 @@ function initSidebarSearch() {
   });
   // X 버튼
   els.sidebarSearchClear?.addEventListener("click", () => {
+    cancelPending();
     els.sidebarSearch.value = "";
     apply("");
     els.sidebarSearch.focus();
@@ -1938,8 +2416,16 @@ function initSidebarSearch() {
       const tag = (document.activeElement?.tagName ?? "").toLowerCase();
       if (tag === "input" || tag === "textarea") return;
       e.preventDefault();
-      els.sidebarSearch?.focus();
-      els.sidebarSearch?.select();
+      const focusSearch = () => {
+        els.sidebarSearch?.focus();
+        els.sidebarSearch?.select();
+      };
+      if (document.body.classList.contains("sidebar-collapsed")) {
+        els.sidebarToggle?.click();
+        requestAnimationFrame(focusSearch);
+      } else {
+        focusSearch();
+      }
     }
   });
 }
@@ -1959,25 +2445,64 @@ function _highlightMatch(text, query) {
   return `${before}<mark class="sidebar-search-hit">${match}</mark>${after}`;
 }
 
+function getRecentChapterId() {
+  const chapters = state.chapters ?? [];
+  const chapterIds = new Set(chapters.map((chapter) => chapter.id));
+  const normalizeTitle = (value) =>
+    String(value ?? "")
+      .replace(/^\s*\d+[.\-_:]\s*/, "")
+      .trim()
+      .toLowerCase();
+  const recentHistory = [...(state.history ?? [])].sort((a, b) =>
+    String(b.modifiedAt ?? b.date ?? "").localeCompare(
+      String(a.modifiedAt ?? a.date ?? ""),
+    ),
+  );
+  for (const note of recentHistory) {
+    if (note.chapterId && chapterIds.has(note.chapterId)) {
+      return note.chapterId;
+    }
+    // 최신 스키마는 chapter_id를 쓰지 않으므로 표시 제목으로 매칭한다.
+    const noteTitle = normalizeTitle(note.topic ?? note.title);
+    const matched = chapters.find(
+      (chapter) => normalizeTitle(chapter.title) === noteTitle,
+    );
+    if (matched) return matched.id;
+  }
+
+  // 옛 노트처럼 chapterId/수정 시각 정보가 없을 때만 일 단위 진행 정보로 폴백.
+  const visited = [...(state.chapters ?? [])]
+    .filter((chapter) => chapter.lastDate)
+    .sort((a, b) =>
+      String(b.lastDate ?? "").localeCompare(String(a.lastDate ?? "")),
+    );
+  return visited[0]?.id ?? null;
+}
+
 function renderChapters() {
   els.chapterList.innerHTML = "";
   if (state.chapters.length === 0) {
     els.chapterList.innerHTML = `<li class="empty">챕터 없음</li>`;
+    if (els.chapterProgressSummary) {
+      els.chapterProgressSummary.textContent = "0 / 0";
+    }
     return;
   }
-  // v0.5.51 — 가장 최근 학습한 챕터 id를 미리 뽑아두기.
-  // 재진입 시 사용자가 "어디까지 했더라" 바로 찾을 수 있게 강한 시각 표식.
-  const recentChapterId = (() => {
-    const visited = state.chapters
-      .filter((c) => c.lastDate)
-      .sort((a, b) => (b.lastDate ?? "").localeCompare(a.lastDate ?? ""));
-    return visited[0]?.id ?? null;
-  })();
-  // v0.4.7 — 활성 강조(좌측 accent bar)는 "현재 진행 중인 세션의 챕터"를
-  // 따라간다. 진행 중 세션이 없으면 마지막 저장 챕터로 폴백 (재진입 UX 유지).
-  // "마지막" 라벨은 별개 — 항상 마지막 end-save 챕터(recentChapterId).
+  // 실제 노트 수정 시각 기준. 같은 날 여러 챕터를 학습해도 정확히 표시한다.
+  const recentChapterId = getRecentChapterId();
+  // 현재 세션과 마지막 학습을 분리한다. 세션이 없을 때 최근 챕터를
+  // active로 취급하면 "진행 중"과 "마지막 완료"가 같은 상태로 보인다.
   const activeChapterId = state.session?.chapterId ?? null;
-  const highlightChapterId = activeChapterId ?? recentChapterId;
+  const totalChapterCount = state.chapters.length;
+  const completedChapterCount = state.chapters.filter(
+    (chapter) => (chapter.maxDepth ?? 0) > 0,
+  ).length;
+  if (els.chapterProgressSummary) {
+    els.chapterProgressSummary.textContent =
+      `${completedChapterCount} / ${totalChapterCount}`;
+  }
+  const roadmapComplete =
+    totalChapterCount > 0 && completedChapterCount === totalChapterCount;
   // 검색어가 있으면 필터링 (v0.5.51)
   const q = (state.sidebarQuery ?? "").trim().toLowerCase();
   const filtered = q
@@ -1992,61 +2517,138 @@ function renderChapters() {
   filtered.forEach((ch, i) => {
     const li = document.createElement("li");
     li.className = "chapter-item";
+    const originalIdx = q ? state.chapters.indexOf(ch) : i;
+    const stepRatio =
+      totalChapterCount > 1 ? originalIdx / (totalChapterCount - 1) : 1;
+    const stepToneStrength = Math.round(46 + stepRatio * 54);
+    li.style.setProperty(
+      "--chapter-step-tone",
+      roadmapComplete
+        ? "var(--blue-success)"
+        : `color-mix(in srgb, var(--blue-cobalt) ${stepToneStrength}%, var(--blue-line-strong))`,
+    );
+    li.dataset.chapterStep = String(originalIdx + 1);
     const visited = (ch.maxDepth ?? 0) > 0;
-    if (ch.id === highlightChapterId) li.classList.add("chapter-item--active");
-    if (ch.id === recentChapterId) li.classList.add("chapter-item--last");
+    const isRecent = ch.id === recentChapterId;
+    if (isRecent) li.classList.add("chapter-item--recent");
+    const isActive = ch.id === activeChapterId;
+    const progressState = isActive
+      ? "current"
+      : visited
+        ? "completed"
+        : "upcoming";
+    li.classList.add(`chapter-item--${progressState}`);
+    li.dataset.progressState = progressState;
+    if (roadmapComplete) {
+      li.classList.add("chapter-item--roadmap-complete");
+      if (originalIdx === totalChapterCount - 1) {
+        li.classList.add("chapter-item--journey-complete");
+      }
+    }
+    if (isActive) {
+      li.classList.add("chapter-item--active");
+    }
     const badge = visited
-      ? `<span class="chapter-depth-pill deletable" data-chapter-delete="${escapeAttr(ch.id)}" title="클릭하여 노트 삭제 · 마지막 학습: ${escapeAttr(ch.lastDate ?? "")} · 총 ${ch.visitCount}회">d${ch.maxDepth}</span>`
+      ? `<span class="chapter-depth-pill" title="마지막 학습: ${escapeAttr(ch.lastDate ?? "")} · 총 ${ch.visitCount}회">d${ch.maxDepth}</span>`
       : `<span class="chapter-depth-pill empty"></span>`;
+    const recentBadge = isRecent
+      ? `<span class="chapter-last-badge" aria-label="마지막 학습 챕터" title="가장 최근에 학습한 챕터">마지막</span>`
+      : "";
     // visited 챕터에 노트 열기 + 삭제 트리거 (hover 시 등장)
     const openBtn = visited
-      ? `<span class="chapter-open-btn" data-chapter-open="${escapeAttr(ch.id)}" role="button" tabindex="0" title="기존 노트 열기 (Obsidian)">
+      ? `<button type="button" role="menuitem" class="chapter-open-btn" data-chapter-open="${escapeAttr(ch.id)}" title="기존 노트 열기 (Obsidian)" aria-label="${escapeAttr(ch.title)} 기존 노트 열기">
           <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
             <path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"></path>
             <path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"></path>
           </svg>
-        </span>`
+          <span class="chapter-action-label">노트 열기</span>
+        </button>`
       : "";
     const trashBtn = visited
-      ? `<span class="chapter-delete-btn" data-chapter-delete="${escapeAttr(ch.id)}" role="button" tabindex="0" title="이 챕터의 노트 삭제">
+      ? `<button type="button" role="menuitem" class="chapter-delete-btn" data-chapter-delete="${escapeAttr(ch.id)}" title="이 챕터의 노트 삭제" aria-label="${escapeAttr(ch.title)} 노트 삭제">
           <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
             <polyline points="3 6 5 6 21 6"></polyline>
             <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"></path>
             <path d="M10 11v6M14 11v6"></path>
             <path d="M9 6V4a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2"></path>
           </svg>
-        </span>`
+          <span class="chapter-action-label">노트 삭제</span>
+        </button>`
       : "";
     // v0.5.51 — 검색 중일 땐 원본 인덱스를 보여줘서 "전체 중 N번째" 알 수 있게
-    const originalIdx = q ? state.chapters.indexOf(ch) : i;
     const titleHtml = q ? _highlightMatch(ch.title, q) : escapeHtml(ch.title);
-    // v0.5.70 — 💡 AI 카드 버튼. 캐시 있으면 채워진 외관, 없으면 비어있음.
+    // v0.5.70 — 챕터 미리보기 버튼. 캐시 있으면 채워진 외관, 없으면 비어있음.
     const aiReady = ch.aiCardReady === true;
-    const aiBtn = `<span class="chapter-ai-btn${aiReady ? " ready" : ""}" data-chapter-ai="${escapeAttr(ch.id)}" role="button" tabindex="0" title="${aiReady ? "AI 미리보기 카드 보기" : "AI 미리보기 카드 만들기 (1회 생성, 캐시됨)"}">
-        <svg viewBox="0 0 24 24" width="13" height="13" fill="${aiReady ? "currentColor" : "none"}" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-          <path d="M9 18h6"></path>
-          <path d="M10 22h4"></path>
-          <path d="M12 2a7 7 0 0 0-4 12.7c.6.5 1 1.2 1 2V17a1 1 0 0 0 1 1h4a1 1 0 0 0 1-1v-.3c0-.8.4-1.5 1-2A7 7 0 0 0 12 2z"></path>
+    const previewLabel = aiReady
+      ? `${ch.title} 미리보기 열기`
+      : `${ch.title} 미리보기 준비하기`;
+    const aiBtn = `<button type="button" role="menuitem" class="chapter-ai-btn${aiReady ? " ready" : ""}" data-chapter-ai="${escapeAttr(ch.id)}" title="${aiReady ? "챕터 미리보기 열기" : "챕터 미리보기 준비하기 (처음 한 번만)"}" aria-label="${escapeAttr(previewLabel)}">
+        <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M12 12 m0 0 a1 1 0 0 1 2 0 a2 2 0 0 1 -4 0 a3 3 0 0 1 6 0 a4 4 0 0 1 -8 0 a5 5 0 0 1 10 0"></path>
         </svg>
-      </span>`;
+        <span class="chapter-action-label">미리보기</span>
+      </button>`;
     li.innerHTML = `
-      <button class="chapter-btn ${visited ? "visited" : ""}" data-id="${escapeAttr(ch.id)}">
+      <button class="chapter-btn ${visited ? "visited" : ""}" data-id="${escapeAttr(ch.id)}"${isActive ? ' aria-current="step"' : ""}>
         <span class="num">${originalIdx + 1}.</span>
         <span class="title">${titleHtml}</span>
-        ${badge}
-        ${aiBtn}
-        ${openBtn}
-        ${trashBtn}
+        <span class="chapter-meta${!visited && !isRecent ? " empty" : ""}">${recentBadge}${badge}</span>
       </button>
+      <span class="chapter-actions">
+        <button type="button" class="chapter-actions-toggle" aria-label="${escapeAttr(ch.title)} 챕터 메뉴 열기" aria-expanded="false" aria-haspopup="menu" title="챕터 메뉴">
+          <svg viewBox="0 0 24 24" width="15" height="15" fill="currentColor" aria-hidden="true">
+            <circle cx="5" cy="12" r="1.5"></circle>
+            <circle cx="12" cy="12" r="1.5"></circle>
+            <circle cx="19" cy="12" r="1.5"></circle>
+          </svg>
+        </button>
+        <span class="chapter-action-buttons" role="menu" aria-label="${escapeAttr(ch.title)} 챕터 메뉴">
+          ${aiBtn}
+          ${openBtn}
+          ${trashBtn}
+        </span>
+      </span>
     `;
-    const btn = li.querySelector("button");
-    btn.addEventListener("click", async (e) => {
+    li.addEventListener("click", async (e) => {
+      const actionsToggle = e.target.closest(".chapter-actions-toggle");
+      if (actionsToggle) {
+        e.preventDefault();
+        e.stopPropagation();
+        const actions = actionsToggle.closest(".chapter-actions");
+        const willOpen = !actions.classList.contains("actions-open");
+        document
+          .querySelectorAll(".chapter-actions.actions-open")
+          .forEach((item) => {
+            item.classList.remove("actions-open");
+            item
+              .querySelector(".chapter-actions-toggle")
+              ?.setAttribute("aria-expanded", "false");
+          });
+        actions.classList.toggle("actions-open", willOpen);
+        actionsToggle.setAttribute("aria-expanded", String(willOpen));
+        return;
+      }
+      const closeActionsMenu = () => {
+        const actions = e.target.closest(".chapter-actions");
+        actions?.classList.remove("actions-open");
+        actions
+          ?.querySelector(".chapter-actions-toggle")
+          ?.setAttribute("aria-expanded", "false");
+      };
+      const resolveActionsAnchor = (trigger) => {
+        const toggle = trigger
+          .closest(".chapter-actions")
+          ?.querySelector(".chapter-actions-toggle");
+        return toggle && toggle.getClientRects().length > 0 ? toggle : trigger;
+      };
       // v0.5.70 — AI 카드(💡) 클릭은 별도 popover 흐름
       const aiTrigger = e.target.closest("[data-chapter-ai]");
       if (aiTrigger) {
         e.preventDefault();
         e.stopPropagation();
-        openChapterAiCardPopover(aiTrigger, ch);
+        const anchor = resolveActionsAnchor(aiTrigger);
+        closeActionsMenu();
+        openChapterAiCardPopover(anchor, ch);
         return;
       }
       // 노트 열기 (📖) 클릭은 Obsidian 노트 열기로 분기
@@ -2054,15 +2656,19 @@ function renderChapters() {
       if (openTrigger) {
         e.preventDefault();
         e.stopPropagation();
-        openChapterNotePopover(openTrigger, ch);
+        const anchor = resolveActionsAnchor(openTrigger);
+        closeActionsMenu();
+        openChapterNotePopover(anchor, ch);
         return;
       }
-      // depth 배지 또는 휴지통 클릭은 삭제 팝오버로 분기
+      // 휴지통 버튼 클릭은 삭제 팝오버로 분기
       const trigger = e.target.closest("[data-chapter-delete]");
       if (trigger) {
         e.preventDefault();
         e.stopPropagation();
-        openDeletePopover(trigger, {
+        const anchor = resolveActionsAnchor(trigger);
+        closeActionsMenu();
+        openDeletePopover(anchor, {
           kind: "chapter",
           roadmapId: state.activeRoadmapId,
           chapterId: ch.id,
@@ -2071,6 +2677,7 @@ function renderChapters() {
         });
         return;
       }
+      if (!e.target.closest(".chapter-btn")) return;
       const decision = await handleSessionInterruption();
       if (decision === "cancel") return;
       startSession(ch.id);
@@ -2136,9 +2743,12 @@ async function openChapterAiCardPopover(anchorEl, chapter) {
   closeDeletePopover();
   const pop = document.createElement("div");
   pop.className = "chapter-ai-popover";
+  pop.setAttribute("role", "dialog");
+  pop.setAttribute("aria-modal", "false");
+  pop.setAttribute("aria-labelledby", "chapter-preview-title");
   pop.innerHTML = `
     <div class="chapter-ai-popover-header">
-      <span class="chapter-ai-popover-title">${escapeHtml(chapter.title)}</span>
+      <span class="chapter-ai-popover-title" id="chapter-preview-title">${escapeHtml(chapter.title)}</span>
       <button class="chapter-ai-popover-close" type="button" aria-label="닫기">
         <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <line x1="18" y1="6" x2="6" y2="18"></line>
@@ -2147,9 +2757,9 @@ async function openChapterAiCardPopover(anchorEl, chapter) {
       </button>
     </div>
     <div class="chapter-ai-popover-body chapter-ai-loading">
-      <div class="chapter-ai-loading-dots"><span></span><span></span><span></span></div>
-      <div class="chapter-ai-loading-text">AI가 챕터를 살펴보는 중…</div>
-      <div class="chapter-ai-loading-hint">처음 한 번만 생성, 다음 클릭부터는 즉시 표시</div>
+      <div class="chapter-preview-loader" aria-hidden="true"><span></span></div>
+      <div class="chapter-ai-loading-text">챕터 미리보기를 준비하는 중…</div>
+      <div class="chapter-ai-loading-hint">한 번 준비하면 다음부터 바로 열려요</div>
     </div>
   `;
   // 위치 — 챕터 항목 우측. viewport 넘으면 좌측으로 fallback.
@@ -2167,14 +2777,16 @@ async function openChapterAiCardPopover(anchorEl, chapter) {
   pop.style.width = `${POP_WIDTH}px`;
   document.body.appendChild(pop);
   _activePopover = pop;
+  _activePopoverReturnFocus = anchorEl;
 
   // 표시 후 viewport 충돌 보정 (로딩 상태 기준)
   _reclampAiPopover(pop);
 
   // 닫기 버튼
   pop.querySelector(".chapter-ai-popover-close")?.addEventListener("click", () => {
-    closeDeletePopover();
+    closeDeletePopover({ restoreFocus: true });
   });
+  pop.querySelector(".chapter-ai-popover-close")?.focus();
 
   // 외부 클릭/ESC 닫기 — 다른 popover와 동일 메커니즘
   setTimeout(() => {
@@ -2209,7 +2821,11 @@ async function openChapterAiCardPopover(anchorEl, chapter) {
     const btn = document.querySelector(
       `[data-chapter-ai="${cssEscape(chapter.id)}"]`,
     );
-    if (btn) btn.classList.add("ready");
+    if (btn) {
+      btn.classList.add("ready");
+      btn.title = "챕터 미리보기 열기";
+      btn.setAttribute("aria-label", `${chapter.title} 미리보기 열기`);
+    }
   } catch (e) {
     if (_activePopover !== pop) return;
     const body = pop.querySelector(".chapter-ai-popover-body");
@@ -2222,12 +2838,12 @@ async function openChapterAiCardPopover(anchorEl, chapter) {
       const canRetry = tries < AI_CARD_MAX_RETRIES;
       body.innerHTML = `
         <div class="chapter-ai-error">
-          <div class="chapter-ai-error-title">생성 실패</div>
+          <div class="chapter-ai-error-title">미리보기를 열지 못했어요</div>
           <div class="chapter-ai-error-msg">${escapeHtml(String(e?.message || e))}</div>
           ${
             canRetry
               ? `<button class="chapter-ai-retry" type="button">다시 시도 (${tries}/${AI_CARD_MAX_RETRIES})</button>`
-              : `<div class="chapter-ai-error-msg">여러 번 실패했어요 — 네트워크/API 키 상태 확인 후 잠시 뒤에 다시 시도해주세요.</div>`
+              : `<div class="chapter-ai-error-msg">설정의 학습 엔진 연결 상태를 확인한 뒤 잠시 후 다시 시도해주세요.</div>`
           }
         </div>
       `;
@@ -2304,33 +2920,54 @@ function _renderChapterAiCardBody(pop, chapter, card) {
 
 let _settingsCache = null;
 
-async function initSettings() {
-  _settingsCache = await window.spiralSettings.get();
-  renderWorkspaceSelector();
+function setSettingsLoadState(mode, message = "") {
+  const blocked = mode !== "ready";
+  els.settingsModal
+    ?.querySelectorAll(".settings-tabs, .settings-panel")
+    .forEach((element) => {
+      element.inert = blocked;
+    });
+  els.settingsModal?.classList.toggle("settings-is-loading", mode === "loading");
+  els.settingsModal?.classList.toggle("settings-load-failed", mode === "error");
 
+  const stateEl = document.getElementById("settings-load-state");
+  const textEl = document.getElementById("settings-load-state-text");
+  const retryBtn = document.getElementById("settings-load-retry");
+  if (!stateEl || !textEl || !retryBtn) return;
+  stateEl.classList.toggle("hidden", mode === "ready");
+  retryBtn.classList.toggle("hidden", mode !== "error");
+  textEl.textContent =
+    mode === "error"
+      ? message || "설정을 불러오지 못했어요."
+      : "설정을 불러오는 중…";
+}
+
+async function getSettingsWithTimeout(timeoutMs = 8_000) {
+  let timer;
+  try {
+    return await Promise.race([
+      window.spiralSettings.get(),
+      new Promise((_, reject) => {
+        timer = window.setTimeout(
+          () => reject(new Error("설정 응답 시간이 초과되었습니다.")),
+          timeoutMs,
+        );
+      }),
+    ]);
+  } finally {
+    window.clearTimeout(timer);
+  }
+}
+
+async function initSettings() {
   // topbar 설정 버튼
   els.settingsBtn?.addEventListener("click", openSettingsModal);
+  document
+    .getElementById("settings-load-retry")
+    ?.addEventListener("click", openSettingsModal);
   els.settingsModalClose?.addEventListener("click", closeSettingsModal);
   els.settingsModal?.addEventListener("click", (e) => {
     if (e.target === els.settingsModal) closeSettingsModal();
-  });
-
-  // 워크스페이스 셀렉터 토글
-  // v0.5.82 — 열 때마다 fresh 조회 후 렌더. 기존엔 부팅 시점
-  // _settingsCache로 미리 렌더한 목록을 토글만 해서, 삭제/추가가
-  // 어떤 경로로 일어났든 (설정 모달, setup wizard, 재시작 경로)
-  // 캐시가 낡으면 삭제된 워크스페이스가 유령처럼 남았음.
-  els.workspaceCurrent?.addEventListener("click", async () => {
-    const opening = els.workspaceList?.classList.contains("hidden");
-    if (opening) {
-      try {
-        _settingsCache = await window.spiralSettings.get();
-        renderWorkspaceSelector();
-      } catch {
-        // 조회 실패 — 기존 캐시로라도 표시
-      }
-    }
-    els.workspaceList?.classList.toggle("hidden");
   });
 
   // ESC로 모달 닫기
@@ -2346,17 +2983,41 @@ async function initSettings() {
   });
 
   // 설정 모달 탭 스위칭
-  els.settingsModal?.querySelectorAll(".settings-tab").forEach((tab) => {
-    tab.addEventListener("click", () => {
-      els.settingsModal
-        .querySelectorAll(".settings-tab")
-        .forEach((t) => t.classList.toggle("active", t === tab));
-      const target = tab.dataset.tab;
-      els.settingsModal
-        .querySelectorAll(".settings-panel")
-        .forEach((p) =>
-          p.classList.toggle("hidden", p.dataset.panel !== target),
-        );
+  const settingsTabs = Array.from(
+    els.settingsModal?.querySelectorAll(".settings-tab") ?? [],
+  );
+  const activateSettingsTab = (tab, { focus = false } = {}) => {
+    settingsTabs.forEach((item) => {
+      const active = item === tab;
+      item.classList.toggle("active", active);
+      item.setAttribute("aria-selected", String(active));
+      item.tabIndex = active ? 0 : -1;
+    });
+    const target = tab.dataset.tab;
+    els.settingsModal
+      .querySelectorAll(".settings-panel")
+      .forEach((panel) =>
+        panel.classList.toggle("hidden", panel.dataset.panel !== target),
+      );
+    if (focus) tab.focus();
+  };
+  settingsTabs.forEach((tab, index) => {
+    tab.addEventListener("click", () => activateSettingsTab(tab));
+    tab.addEventListener("keydown", (event) => {
+      if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) {
+        return;
+      }
+      event.preventDefault();
+      const nextIndex =
+        event.key === "Home"
+          ? 0
+          : event.key === "End"
+            ? settingsTabs.length - 1
+            : (index +
+                (event.key === "ArrowRight" ? 1 : -1) +
+                settingsTabs.length) %
+              settingsTabs.length;
+      activateSettingsTab(settingsTabs[nextIndex], { focus: true });
     });
   });
 
@@ -2383,48 +3044,17 @@ async function initSettings() {
 
   // 새 워크스페이스 모달
   initAddWorkspaceModal();
-}
 
-function renderWorkspaceSelector() {
-  if (!_settingsCache) return;
-  const active = _settingsCache.workspaces.find(
-    (w) => w.id === _settingsCache.activeWorkspaceId,
-  );
-  if (active && els.workspaceName) {
-    els.workspaceName.textContent = displayWorkspaceName(active);
+  // IPC 응답과 무관하게 위 상호작용부터 즉시 연결한다. 설정 조회가 느리거나
+  // 멈춰도 버튼은 열리며, 모달 안에서 제한 시간 내 재시도할 수 있다.
+  try {
+    _settingsCache = await getSettingsWithTimeout();
+  } catch (error) {
+    setStatus(
+      `워크스페이스 정보를 불러오지 못했어요: ${readableLoadError(error)}`,
+      "error",
+    );
   }
-  if (!els.workspaceList) return;
-  els.workspaceList.innerHTML = _settingsCache.workspaces
-    .map((w) => {
-      const isActive = w.id === _settingsCache.activeWorkspaceId;
-      return `
-        <button class="workspace-item ${isActive ? "active" : ""}" data-id="${escapeAttr(w.id)}">
-          <span class="workspace-item-icon">${isActive ? "✓" : "·"}</span>
-          <span class="workspace-item-name">${escapeHtml(displayWorkspaceName(w))}</span>
-        </button>
-      `;
-    })
-    .join("") +
-    `<button class="workspace-item add" id="workspace-list-add">＋ 새 워크스페이스</button>`;
-
-  els.workspaceList.querySelectorAll(".workspace-item[data-id]").forEach((b) => {
-    b.addEventListener("click", async () => {
-      const id = b.dataset.id;
-      if (id === _settingsCache.activeWorkspaceId) {
-        els.workspaceList.classList.add("hidden");
-        return;
-      }
-      const ok = window.confirm(
-        `워크스페이스를 전환하면 앱이 재시작됩니다. 진행할까요?`,
-      );
-      if (!ok) return;
-      await window.spiralSettings.switchWorkspace(id);
-    });
-  });
-  document.getElementById("workspace-list-add")?.addEventListener("click", () => {
-    els.workspaceList.classList.add("hidden");
-    openAddWorkspaceModal();
-  });
 }
 
 // v0.5.32+ — 업데이트 banner. v0.5.36: 실패 명시 + manual 진입점 항상 노출.
@@ -2481,7 +3111,7 @@ async function refreshUpdateBanner({ force = false } = {}) {
 
   if (info?.updateAvailable) {
     banner.classList.add("has-update");
-    text.innerHTML = `✨ <strong>새 버전 v${escapeHtml(info.latest)}</strong> 사용 가능 — 현재 v${escapeHtml(info.current)}`;
+    text.innerHTML = `<strong>새 버전 v${escapeHtml(info.latest)}</strong> 사용 가능 — 현재 v${escapeHtml(info.current)}`;
     installBtn.dataset.version = info.latest;
     installBtn.classList.remove("hidden");
     installBtn.disabled = false;
@@ -2514,6 +3144,10 @@ async function refreshUpdateBanner({ force = false } = {}) {
             `업데이트 실패: ${result.reason ?? "알 수 없는 오류"}\n\n` +
               `잠시 후 다시 시도하거나, 우측 Releases 링크에서 수동으로 받아주세요.`,
           );
+        } else if (result?.mode === "browser") {
+          // Linux 등 브라우저에서 직접 받는 플랫폼은 앱이 종료되지 않음.
+          installBtn.disabled = false;
+          installBtn.textContent = "받기";
         }
         // ok=true면 곧 앱이 종료되고 설치가 진행됨
       } catch (err) {
@@ -2537,10 +3171,29 @@ document.addEventListener("DOMContentLoaded", () => {
     ?.addEventListener("click", () => refreshUpdateBanner({ force: true }));
 });
 
-function openSettingsModal() {
-  if (!_settingsCache) return;
+async function openSettingsModal() {
   els.settingsModal.classList.remove("hidden");
   els.settingsModal.setAttribute("aria-hidden", "false");
+
+  if (!_settingsCache) {
+    setSettingsLoadState("loading");
+    const activeName = document.getElementById(
+      "settings-workspace-active-name",
+    );
+    if (activeName) activeName.textContent = "불러오는 중…";
+    try {
+      _settingsCache = await getSettingsWithTimeout();
+    } catch (error) {
+      // 동시에 시작된 초기 조회가 먼저 성공했으면 그 캐시로 계속 연다.
+      if (!_settingsCache) {
+        if (activeName) activeName.textContent = "불러오지 못했어요";
+        const reason = readableLoadError(error);
+        setSettingsLoadState("error", `설정을 불러오지 못했어요 · ${reason}`);
+        setStatus(`설정을 불러오지 못했어요: ${reason}`, "error");
+        return;
+      }
+    }
+  }
 
   // v0.5.32: 자동 업데이트 체크
   refreshUpdateBanner();
@@ -2599,10 +3252,12 @@ function openSettingsModal() {
   refreshLlmSectionFromCache();
 
   renderWorkspaceListInSettings();
+  setSettingsLoadState("ready");
 }
 
 function closeSettingsModal() {
   els.settingsModal?.classList.add("hidden");
+  els.settingsModal?.setAttribute("aria-hidden", "true");
 }
 
 async function saveApiKey() {
@@ -2876,7 +3531,7 @@ async function saveLlm() {
   // 프로바이더 설정은 서버 부팅 시에만 반영됨 — 워크스페이스 전환과 같은
   // relaunch 패턴 (main process에서 app.relaunch). 취소하면 저장만.
   const relaunch = window.confirm(
-    "AI 프로바이더 설정은 앱을 재시작해야 적용됩니다.\n저장 후 지금 바로 재시작할까요?\n\n(취소 = 저장만 하고, 다음 실행부터 적용)",
+    "학습 엔진 설정은 앱을 재시작해야 적용됩니다.\n저장 후 지금 바로 재시작할까요?\n\n(취소 = 저장만 하고, 다음 실행부터 적용)",
   );
 
   if (el.saveBtn) {
@@ -2906,7 +3561,7 @@ async function saveLlm() {
     }
     setStatus(
       relaunch
-        ? "AI 프로바이더 설정 저장됨 — 앱을 재시작합니다…"
+        ? "학습 엔진 설정 저장됨 — 앱을 재시작합니다…"
         : "저장됨 — 앱을 재시작하면 적용됩니다.",
     );
   } else {
@@ -2917,6 +3572,17 @@ async function saveLlm() {
 function renderWorkspaceListInSettings() {
   const container = document.getElementById("settings-workspace-list");
   if (!container || !_settingsCache) return;
+  const activeWorkspace = _settingsCache.workspaces.find(
+    (w) => w.id === _settingsCache.activeWorkspaceId,
+  );
+  const activeName = document.getElementById(
+    "settings-workspace-active-name",
+  );
+  if (activeName) {
+    activeName.textContent = activeWorkspace
+      ? displayWorkspaceName(activeWorkspace)
+      : "선택되지 않음";
+  }
   container.innerHTML = _settingsCache.workspaces
     .map((w) => {
       const isActive = w.id === _settingsCache.activeWorkspaceId;
@@ -2930,7 +3596,7 @@ function renderWorkspaceListInSettings() {
               ${sourceTag}
             </div>
             <div class="ws-row-path"><code>${escapeHtml(w.roadmapRoot ?? "")}</code></div>
-            <div class="ws-row-vaultsub">노트: <code>vault/${escapeHtml(w.vaultSubDir ?? "spiral-buddy")}/</code></div>
+            <div class="ws-row-vaultsub">노트: <code>vault/${escapeHtml(workspaceVaultSubDir(w))}/</code></div>
           </div>
           <div class="ws-row-actions">
             ${
@@ -2971,7 +3637,7 @@ function openRemoveWorkspaceModal(ws) {
   document.getElementById("remove-ws-dir-path").innerHTML = ws.roadmapRoot
     ? `<code>${escapeHtml(ws.roadmapRoot)}</code> 가 영구 삭제됩니다.`
     : "이 워크스페이스에 학습 자료 경로가 없습니다.";
-  document.getElementById("remove-ws-notes-path").innerHTML = `<code>${escapeHtml(_settingsCache.vaultPath ?? "")}/${escapeHtml(ws.vaultSubDir ?? "spiral-buddy")}</code> 이 옆 폴더로 이동(보관)됩니다.`;
+  document.getElementById("remove-ws-notes-path").innerHTML = `<code>${escapeHtml(_settingsCache.vaultPath ?? "")}/${escapeHtml(workspaceVaultSubDir(ws))}</code> 이 옆 폴더로 이동(보관)됩니다.`;
   document.getElementById("remove-ws-del-dir").checked = false;
   document.getElementById("remove-ws-del-notes").checked = false;
   document.getElementById("remove-ws-error").classList.add("hidden");
@@ -3011,7 +3677,6 @@ function openRemoveWorkspaceModal(ws) {
     cleanup();
     _settingsCache = await window.spiralSettings.get();
     renderWorkspaceListInSettings();
-    renderWorkspaceSelector();
     // 에러가 있었으면 알림
     if (res.errors && res.errors.length > 0) {
       alert(
@@ -3110,7 +3775,6 @@ async function submitAddWorkspace() {
   }
   _settingsCache = await window.spiralSettings.get();
   renderWorkspaceListInSettings();
-  renderWorkspaceSelector();
   closeAddWorkspaceModal();
   // 새 워크스페이스로 전환 제안
   const switchOk = window.confirm(
@@ -3263,15 +3927,15 @@ function renderCuratedPresets() {
       ).length;
       const allDone = installedCount === repos.length;
       return `
-        <button class="curated-preset-card${p.recommended ? " recommended" : ""}${p.heavy ? " heavy" : ""}" data-preset="${escapeAttr(p.id)}" type="button" ${!_curatedState.parentDir || _curatedState.busy ? "disabled" : ""}>
+        <button class="curated-preset-card${p.recommended ? " recommended" : ""}${p.heavy ? " heavy" : ""}" data-preset="${escapeAttr(p.id)}" type="button" style="--preset-tone: ${escapeAttr(p.color ?? "#059669")}" ${!_curatedState.parentDir || _curatedState.busy ? "disabled" : ""}>
           <div class="curated-preset-head">
-            <span class="curated-preset-emoji">${escapeHtml(p.emoji ?? "")}</span>
+            ${rolePresetIconHtml(p)}
             <span class="curated-preset-name">${escapeHtml(p.name)}</span>
             ${p.recommended ? `<span class="curated-preset-tag">추천</span>` : ""}
             ${p.heavy ? `<span class="curated-preset-tag heavy">무거움</span>` : ""}
           </div>
           <div class="curated-preset-sub">${escapeHtml(p.subtitle ?? "")}</div>
-          <div class="curated-preset-meta">${repos.length} repos · ${installedCount}/${repos.length} 받음 ${allDone ? "✓" : ""}</div>
+          <div class="curated-preset-meta">저장소 ${repos.length}개 · ${installedCount}/${repos.length} 받음 ${allDone ? "✓" : ""}</div>
         </button>`;
     })
     .join("");
@@ -3302,10 +3966,10 @@ function renderCuratedDomains() {
           ? `+${missing}개 추가`
           : `받기 (${repos.length})`;
       return `
-        <div class="curated-domain-row ${isAllDone ? "all-done" : ""} ${isPartial ? "partial" : ""}">
+        <div class="curated-domain-row ${isAllDone ? "all-done" : ""} ${isPartial ? "partial" : ""}" style="--domain-tone: ${escapeAttr(d.color ?? "#059669")}">
           <div class="curated-domain-info">
             <div class="curated-domain-head">
-              <span class="curated-domain-emoji">${escapeHtml(d.emoji ?? "")}</span>
+              ${categoryIconHtml(d, "curated-domain-icon")}
               <span class="curated-domain-name">${escapeHtml(d.name)}</span>
               <span class="curated-domain-counts">${installedRepos.length}/${repos.length}</span>
             </div>
@@ -3339,7 +4003,7 @@ async function installCuratedPreset(presetId) {
     alert(`${preset.name} — 이미 모두 받음 ✓`);
     return;
   }
-  const msg = `${preset.name} (${preset.subtitle ?? ""})\n\n받을 레포: ${missing.length}개 (이미 받은 ${repos.length - missing.length}개는 skip)\n위치: ${_curatedState.parentDir}\n\n진행할까요?`;
+  const msg = `${preset.name} (${preset.subtitle ?? ""})\n\n받을 저장소: ${missing.length}개 (이미 받은 ${repos.length - missing.length}개는 건너뜀)\n위치: ${_curatedState.parentDir}\n\n진행할까요?`;
   if (!confirm(msg)) return;
   await runCuratedInstall(missing, preset.name);
 }
@@ -3357,7 +4021,7 @@ async function installCuratedDomain(domainId) {
     alert(`${d.name} — 이미 모두 받음 ✓`);
     return;
   }
-  const msg = `${d.emoji} ${d.name}\n${d.subtitle ?? ""}\n\n받을 레포: ${missing.length}개\n위치: ${_curatedState.parentDir}\n\n진행할까요?`;
+  const msg = `${d.name}\n${d.subtitle ?? ""}\n\n받을 레포: ${missing.length}개\n위치: ${_curatedState.parentDir}\n\n진행할까요?`;
   if (!confirm(msg)) return;
   await runCuratedInstall(missing, d.name);
 }
@@ -3382,10 +4046,10 @@ async function runCuratedInstall(repoNames, label) {
     } else if (p.phase === "cloning") {
       const pct =
         p.total > 0 ? Math.round((p.done / p.total) * 100) : 0;
-      text.textContent = `${label} — [${p.done}/${p.total}] ${p.current ?? ""}${p.skipped ? ` · skip ${p.skipped}` : ""}`;
+      text.textContent = `${label} — [${p.done}/${p.total}] ${p.current ?? ""}${p.skipped ? ` · 건너뜀 ${p.skipped}` : ""}`;
       if (fill) fill.style.width = `${pct}%`;
     } else if (p.phase === "done") {
-      text.textContent = `${label} — ✓ 완료 (${p.done - (p.failed ?? 0)}/${p.total}, skip ${p.skipped ?? 0}, 실패 ${p.failed ?? 0})`;
+      text.textContent = `${label} — 완료 (${p.done - (p.failed ?? 0)}/${p.total}, 건너뜀 ${p.skipped ?? 0}, 실패 ${p.failed ?? 0})`;
       if (fill) fill.style.width = `100%`;
     }
   });
@@ -3401,7 +4065,7 @@ async function runCuratedInstall(repoNames, label) {
     if (text) text.textContent = `✗ ${label} 실패: ${res?.error ?? "unknown"}`;
   } else {
     if (text)
-      text.textContent = `✓ ${label} 완료 — 새로 받음 ${res.newlyInstalled}, skip ${res.skipped}, 실패 ${res.failed?.length ?? 0}`;
+      text.textContent = `${label} 완료 — 새로 받음 ${res.newlyInstalled}, 건너뜀 ${res.skipped}, 실패 ${res.failed?.length ?? 0}`;
     // 워크스페이스가 없으면 자동 등록 제안
     const ws = _settingsCache?.workspaces ?? [];
     const targetDir = res.targetDir;
@@ -3420,7 +4084,6 @@ async function runCuratedInstall(repoNames, label) {
         if (wsRes?.ok) {
           _settingsCache = await window.spiralSettings.get();
           renderWorkspaceListInSettings?.();
-          renderWorkspaceSelector?.();
         }
       }
     }
@@ -3439,6 +4102,7 @@ async function runCuratedInstall(repoNames, label) {
 const _lookupState = {
   open: false,
   cardCount: 0,
+  sidebarAutoCollapsed: false,
 };
 
 function initLookup() {
@@ -3534,6 +4198,7 @@ function initLookup() {
     if (els.lookupPanelBody) els.lookupPanelBody.innerHTML = "";
     _lookupState.cardCount = 0;
   });
+  els.lookupClose?.addEventListener("click", closeLookupPanel);
   els.lookupExpand?.addEventListener("click", () => {
     // v0.5.79 — 전체화면 버튼 무력화 fix.
     // v0.5.68부터 openLookupPanel이 inline --lookup-w를 항상 설정하는데,
@@ -3601,6 +4266,18 @@ function initLookup() {
   }
   if (els.lookupResizer) {
     let dragging = false;
+    const updateLookupResizerValue = (width) => {
+      els.lookupResizer.setAttribute(
+        "aria-valuenow",
+        String(Math.round(width)),
+      );
+    };
+    updateLookupResizerValue(
+      parseInt(
+        document.body.style.getPropertyValue("--lookup-w-saved"),
+        10,
+      ) || LOOKUP_DEFAULT,
+    );
     els.lookupResizer.addEventListener("mousedown", (e) => {
       e.preventDefault();
       dragging = true;
@@ -3615,6 +4292,7 @@ function initLookup() {
       );
       document.body.style.setProperty("--lookup-w", `${w}px`);
       document.body.style.setProperty("--lookup-w-saved", `${w}px`);
+      updateLookupResizerValue(w);
     });
     document.addEventListener("mouseup", () => {
       if (!dragging) return;
@@ -3623,11 +4301,37 @@ function initLookup() {
       const w = document.body.style.getPropertyValue("--lookup-w-saved");
       if (w) localStorage.setItem(LOOKUP_WIDTH_KEY, w.trim());
     });
+    els.lookupResizer.addEventListener("keydown", (e) => {
+      if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(e.key)) {
+        return;
+      }
+      e.preventDefault();
+      const current =
+        parseInt(
+          getComputedStyle(document.body).getPropertyValue("--lookup-w"),
+          10,
+        ) || LOOKUP_DEFAULT;
+      const next =
+        e.key === "Home"
+          ? LOOKUP_MIN
+          : e.key === "End"
+            ? _lookupMaxForViewport()
+            : current + (e.key === "ArrowLeft" ? 12 : -12);
+      const w = Math.max(
+        LOOKUP_MIN,
+        Math.min(_lookupMaxForViewport(), next),
+      );
+      document.body.style.setProperty("--lookup-w", `${w}px`);
+      document.body.style.setProperty("--lookup-w-saved", `${w}px`);
+      localStorage.setItem(LOOKUP_WIDTH_KEY, String(w));
+      updateLookupResizerValue(w);
+    });
     // 더블클릭 → 기본값
     els.lookupResizer.addEventListener("dblclick", () => {
       document.body.style.setProperty("--lookup-w", `${LOOKUP_DEFAULT}px`);
       document.body.style.setProperty("--lookup-w-saved", `${LOOKUP_DEFAULT}px`);
       localStorage.setItem(LOOKUP_WIDTH_KEY, String(LOOKUP_DEFAULT));
+      updateLookupResizerValue(LOOKUP_DEFAULT);
     });
   }
 
@@ -3665,7 +4369,7 @@ function initLookup() {
     if (lookupNow > 0 && chatW < CHAT_MIN_CAP - 2) {
       closeLookupPanel();
       setStatus(
-        "창이 좁아져 Look-up을 닫았어요 — 창을 넓히면 다시 열 수 있어요",
+        "창이 좁아져 보조 패널을 닫았어요 — 창을 넓히면 다시 열 수 있어요",
         "info",
       );
       setTimeout(() => {
@@ -3762,13 +4466,16 @@ function _lookupMaxForViewportShared() {
 }
 
 function openLookupPanel() {
-  // v0.5.67 — sidebar-collapsed 상태로 먼저 전환한 후 cap 계산
-  // (자동 사이드바 접힘 이후 viewport headroom이 달라지므로 순서 중요)
-  if (!document.body.classList.contains("sidebar-collapsed")) {
-    document.body.classList.add("sidebar-collapsed");
-    try {
-      localStorage.setItem("spiral-buddy:sidebar-collapsed", "1");
-    } catch {}
+  // 넓은 화면에서는 학습 경로와 보조 노트를 함께 유지한다.
+  // 두 패널을 유지하면 채팅 최소 폭이 깨지는 경우에만 사이드바를 임시로 접는다.
+  _lookupState.sidebarAutoCollapsed = false;
+  const hasOpenSidebar =
+    !document.body.classList.contains("sidebar-collapsed");
+  const headroomWithSidebar =
+    window.innerWidth - _currentSidebarPxForCap() - CHAT_MIN_CAP;
+  if (hasOpenSidebar && headroomWithSidebar < LOOKUP_MIN_CAP) {
+    els.sidebarToggle?.click();
+    _lookupState.sidebarAutoCollapsed = true;
   }
 
   // v0.5.68 — 항상 inline --lookup-w 적용. 옛 버전엔 saved 없을 때
@@ -3788,6 +4495,8 @@ function openLookupPanel() {
   els.lookupPanel?.classList.remove("hidden");
   els.lookupResizer?.classList.remove("hidden");
   els.lookupPanel?.setAttribute("aria-hidden", "false");
+  document.getElementById("lookup-toggle")?.setAttribute("aria-expanded", "true");
+  document.getElementById("lookup-toggle")?.setAttribute("aria-label", "보조 노트 닫기");
   _lookupState.open = true;
 }
 
@@ -3799,11 +4508,21 @@ function closeLookupPanel() {
   els.lookupPanel?.classList.add("hidden");
   els.lookupResizer?.classList.add("hidden");
   els.lookupPanel?.setAttribute("aria-hidden", "true");
+  document.getElementById("lookup-toggle")?.setAttribute("aria-expanded", "false");
+  document.getElementById("lookup-toggle")?.setAttribute("aria-label", "보조 노트 열기");
   _lookupState.open = false;
   // v0.5.50 — inline --lookup-w를 제거해야 grid track이 0으로 돌아감.
   // 안 지우면 panel은 hidden인데 grid column은 400px(또는 saved)로 남아
   // 채팅 우측에 빈 검은 영역이 발생함. saved 값은 별도(--lookup-w-saved)에 보존 → 재오픈 시 복원.
   document.body.style.removeProperty("--lookup-w");
+  if (
+    _lookupState.sidebarAutoCollapsed &&
+    document.body.classList.contains("sidebar-collapsed") &&
+    !window.matchMedia("(max-width: 820px)").matches
+  ) {
+    els.sidebarToggle?.click();
+  }
+  _lookupState.sidebarAutoCollapsed = false;
 }
 
 // ──────────────────────────────────────────────────────────
@@ -3907,11 +4626,17 @@ function initLookupDirectForm() {
 // composer/lookup 입력창 리사이저 공통.
 function makeResizer(handleEl, targetEl, { key, min, max }) {
   if (!handleEl || !targetEl) return;
+  const updateAriaValue = (height) => {
+    handleEl.setAttribute("aria-valuenow", String(Math.round(height)));
+  };
   const saved = parseInt(localStorage.getItem(key) ?? "0", 10);
   if (saved >= min && saved <= max) {
     targetEl.style.minHeight = `${saved}px`;
     targetEl.style.maxHeight = `${saved}px`;
   }
+  requestAnimationFrame(() => {
+    updateAriaValue(Math.max(min, Math.min(max, targetEl.offsetHeight)));
+  });
   let dragging = false;
   let startY = 0;
   let startH = 0;
@@ -3928,6 +4653,7 @@ function makeResizer(handleEl, targetEl, { key, min, max }) {
     const next = Math.max(min, Math.min(max, startH + dy));
     targetEl.style.minHeight = `${next}px`;
     targetEl.style.maxHeight = `${next}px`;
+    updateAriaValue(next);
   });
   document.addEventListener("mouseup", () => {
     if (!dragging) return;
@@ -3935,10 +4661,29 @@ function makeResizer(handleEl, targetEl, { key, min, max }) {
     document.body.classList.remove("composer-resizing");
     localStorage.setItem(key, String(targetEl.offsetHeight));
   });
+  handleEl.addEventListener("keydown", (e) => {
+    if (!["ArrowUp", "ArrowDown", "Home", "End"].includes(e.key)) return;
+    e.preventDefault();
+    const current = targetEl.offsetHeight;
+    const next =
+      e.key === "Home"
+        ? min
+        : e.key === "End"
+          ? max
+          : Math.max(
+              min,
+              Math.min(max, current + (e.key === "ArrowUp" ? 12 : -12)),
+            );
+    targetEl.style.minHeight = `${next}px`;
+    targetEl.style.maxHeight = `${next}px`;
+    localStorage.setItem(key, String(next));
+    updateAriaValue(next);
+  });
   handleEl.addEventListener("dblclick", () => {
     targetEl.style.minHeight = "";
     targetEl.style.maxHeight = "";
     localStorage.removeItem(key);
+    requestAnimationFrame(() => updateAriaValue(targetEl.offsetHeight));
   });
 }
 
@@ -4015,8 +4760,8 @@ function flashLookupCard(existing) {
   setTimeout(() => existing.classList.remove("lookup-card-flash"), 1500);
 }
 
-// 카드 생성: 기존 카드 접기 + article + head fold-toggle + copy/close 액션 +
-// feedback bar wiring. {card, bodyEl} 반환.
+// 카드 생성: 기존 카드 접기 + article + head fold-toggle + copy/close 액션.
+// {card, bodyEl} 반환.
 function createLookupCard({ cardClass, fingerprintAttr, fingerprint, innerHtml }) {
   els.lookupPanelBody.querySelectorAll(".lookup-card").forEach((c) => {
     c.classList.add("collapsed");
@@ -4061,7 +4806,6 @@ function createLookupCard({ cardClass, fingerprintAttr, fingerprint, innerHtml }
       }
     });
   });
-  wireFeedbackBar(card.querySelector(".feedback-bar"));
   return { card, bodyEl };
 }
 
@@ -4147,7 +4891,6 @@ async function runLookup(query, depth, opts = {}) {
     </div>
     ${questionLine}
     <div class="lookup-card-body"><span style="opacity:0.6">…</span></div>
-    ${renderFeedbackBar("lookup")}
   `,
   });
 
@@ -4220,7 +4963,6 @@ async function runChapterContext({ targetMessageText, selectionText } = {}) {
       </div>
     </div>
     <div class="lookup-card-body"><span style="opacity:0.6">맥락 찾는 중…</span></div>
-    ${renderFeedbackBar("lookup")}
   `,
   });
 
@@ -4248,39 +4990,6 @@ function _chapterContextFingerprint(targetMessageText, selectionText) {
 }
 
 // ──────────────────────────────────────────────────────────
-// 따봉 (👍/👎) — v0.5.31
-// ──────────────────────────────────────────────────────────
-
-function renderFeedbackBar(kind /* "msg" | "lookup" */) {
-  return `<div class="feedback-bar" data-kind="${escapeAttr(kind)}" role="group" aria-label="응답 만족도">
-    <button class="feedback-btn" data-vote="up" type="button" title="도움됐어요" aria-label="좋아요">${THUMBS_UP_SVG}</button>
-    <button class="feedback-btn" data-vote="down" type="button" title="아쉬워요" aria-label="아쉬워요">${THUMBS_DOWN_SVG}</button>
-  </div>`;
-}
-
-function wireFeedbackBar(bar) {
-  if (!bar) return;
-  bar.querySelectorAll(".feedback-btn").forEach((btn) => {
-    btn.addEventListener("click", (e) => {
-      e.stopPropagation();
-      const vote = btn.dataset.vote;
-      // 이미 같은 vote 선택돼 있으면 취소 (toggle)
-      if (btn.classList.contains("active")) {
-        btn.classList.remove("active");
-        return;
-      }
-      bar.querySelectorAll(".feedback-btn").forEach((b) =>
-        b.classList.remove("active"),
-      );
-      btn.classList.add("active");
-      // 짧은 시각 피드백 — 살짝 스케일
-      btn.classList.add("just-clicked");
-      setTimeout(() => btn.classList.remove("just-clicked"), 320);
-    });
-  });
-}
-
-// ──────────────────────────────────────────────────────────
 // 휴지통
 // ──────────────────────────────────────────────────────────
 
@@ -4301,7 +5010,7 @@ async function openTrashModal() {
   if (!els.trashModal) return;
   els.trashModal.classList.remove("hidden");
   els.trashModal.setAttribute("aria-hidden", "false");
-  els.trashList.innerHTML = `<li class="empty">loading…</li>`;
+  els.trashList.innerHTML = `<li class="empty">불러오는 중…</li>`;
   try {
     const list = await fetch("/api/trash").then((r) => r.json());
     renderTrashList(Array.isArray(list) ? list : []);
@@ -4388,7 +5097,10 @@ function renderTrashList(entries) {
 async function refreshActivityBadge() {
   if (!els.activityStreak) return;
   try {
-    const data = await fetch("/api/activity?days=90").then((r) => r.json());
+    const data = await fetchJson("/api/activity?days=90", {
+      timeoutMs: 8_000,
+      retries: 1,
+    });
     const byDate = data.byDate ?? {};
     const total = data.total ?? 0;
     // 오늘부터 거꾸로 연속 일수
@@ -4462,15 +5174,14 @@ function hideActivityTooltip() {
   _activityTooltip?.classList.remove("visible");
 }
 
-// ──────────────────────────────────────────────────────────
-// 판단 규칙 인덱스 (Green 전용) — vault 노트들의 "## 판단 규칙"
-// 섹션만 모아 레이어별로 보여주는 개인 의사결정 핸드북.
-// ──────────────────────────────────────────────────────────
-
+// Green 전용: 저장된 노트의 "판단 규칙"을 도메인별로 모아 보여준다.
 async function refreshRulesBadge() {
   if (!els.rulesCount) return;
   try {
-    const data = await fetch("/api/rules").then((r) => r.json());
+    const data = await fetchJson("/api/rules", {
+      timeoutMs: 8_000,
+      retries: 1,
+    });
     state._rulesData = data;
     els.rulesCount.textContent = String(data.ruleCount ?? 0);
   } catch {
@@ -4484,17 +5195,20 @@ async function openRulesModal() {
   els.rulesModal.setAttribute("aria-hidden", "false");
   if (els.rulesSearch) els.rulesSearch.value = "";
   if (els.rulesList) {
-    els.rulesList.innerHTML = `<div class="rules-empty">loading…</div>`;
+    els.rulesList.innerHTML = `<div class="rules-empty"><span class="inline-spinner" aria-hidden="true"></span>판단 규칙을 불러오는 중…</div>`;
   }
   try {
-    const data = await fetch("/api/rules").then((r) => r.json());
+    const data = await fetchJson("/api/rules", {
+      timeoutMs: 15_000,
+      retries: 1,
+    });
     state._rulesData = data;
     if (els.rulesCount) els.rulesCount.textContent = String(data.ruleCount ?? 0);
     renderRules(data, "");
-    if (els.rulesSearch) els.rulesSearch.focus();
-  } catch (err) {
+    els.rulesSearch?.focus();
+  } catch (error) {
     if (els.rulesList) {
-      els.rulesList.innerHTML = `<div class="rules-empty">로드 실패: ${escapeHtml(err.message)}</div>`;
+      els.rulesList.innerHTML = `<div class="rules-empty">로드 실패: ${escapeHtml(readableLoadError(error))}</div>`;
     }
   }
 }
@@ -4503,35 +5217,34 @@ function closeRulesModal() {
   if (!els.rulesModal) return;
   els.rulesModal.classList.add("hidden");
   els.rulesModal.setAttribute("aria-hidden", "true");
+  els.rulesOpenBtn?.focus();
 }
 
 function renderRules(data, query) {
   if (!els.rulesList) return;
   const entries = data?.entries ?? [];
-  const q = (query ?? "").trim().toLowerCase();
-
+  const q = String(query ?? "").trim().toLowerCase();
   if (!entries.length) {
     if (els.rulesSummary) els.rulesSummary.textContent = "";
-    els.rulesList.innerHTML = `<div class="rules-empty">아직 모인 판단 규칙이 없어요.<br/>세션을 끝내고 노트를 저장하면, 노트의 "판단 규칙" 섹션이 여기에 쌓여요.</div>`;
+    els.rulesList.innerHTML = `<div class="rules-empty">아직 모인 판단 규칙이 없어요.<br>학습을 마치고 기록을 저장하면 이곳에 쌓입니다.</div>`;
     return;
   }
 
-  // 필터 — 규칙 텍스트 + 출처(레포/챕터/토픽) 동시 매칭
   let shownRules = 0;
-  const groups = new Map(); // domain id → { domain, blocks } (entries가 레이어 order로 정렬돼 있어 삽입 순서 유지)
-  for (const e of entries) {
+  const groups = new Map();
+  for (const entry of entries) {
     const metaText =
-      `${e.repo ?? ""} ${e.chapter ?? ""} ${e.topic ?? ""} ${e.roadmapName ?? ""}`.toLowerCase();
+      `${entry.repo ?? ""} ${entry.chapter ?? ""} ${entry.topic ?? ""} ${entry.roadmapName ?? ""}`.toLowerCase();
     const items = q
-      ? e.items.filter(
-          (t) => t.toLowerCase().includes(q) || metaText.includes(q),
+      ? entry.items.filter(
+          (text) => text.toLowerCase().includes(q) || metaText.includes(q),
         )
-      : e.items;
+      : entry.items;
     if (!items.length) continue;
     shownRules += items.length;
-    const key = e.domain?.id ?? "__none__";
-    if (!groups.has(key)) groups.set(key, { domain: e.domain, blocks: [] });
-    groups.get(key).blocks.push({ entry: e, items });
+    const key = entry.domain?.id ?? "__none__";
+    if (!groups.has(key)) groups.set(key, { domain: entry.domain, blocks: [] });
+    groups.get(key).blocks.push({ entry, items });
   }
 
   const total = data.ruleCount ?? 0;
@@ -4540,19 +5253,18 @@ function renderRules(data, query) {
       ? `매칭 ${shownRules} / ${total}개`
       : `노트 ${data.noteCount ?? 0}개 · 규칙 ${total}개`;
   }
-
   if (!groups.size) {
-    els.rulesList.innerHTML = `<div class="rules-empty">"${escapeHtml(query)}"에 매칭되는 규칙이 없어요.</div>`;
+    els.rulesList.innerHTML = `<div class="rules-empty">“${escapeHtml(query)}”에 맞는 규칙이 없어요.</div>`;
     return;
   }
 
   const html = [];
   for (const { domain, blocks } of groups.values()) {
-    const count = blocks.reduce((s, b) => s + b.items.length, 0);
+    const count = blocks.reduce((sum, block) => sum + block.items.length, 0);
     html.push(
       domain
         ? `<div class="rules-domain-head" style="color:${escapeAttr(domain.color)}">${escapeHtml(domain.emoji)} ${escapeHtml(domain.name)} <span class="rules-domain-count">${count}</span></div>`
-        : `<div class="rules-domain-head">🗂 기타 <span class="rules-domain-count">${count}</span></div>`,
+        : `<div class="rules-domain-head">기타 <span class="rules-domain-count">${count}</span></div>`,
     );
     for (const { entry, items } of blocks) {
       const color = entry.domain?.color ?? "var(--accent)";
@@ -4564,14 +5276,14 @@ function renderRules(data, query) {
       ]
         .filter(Boolean)
         .join(" · ");
-      const metaInner = entry.obsidianUri
-        ? `<a href="${escapeAttr(entry.obsidianUri)}" title="옵시디언에서 노트 열기">${escapeHtml(source)} ↗</a>`
+      const meta = entry.obsidianUri
+        ? `<a href="${escapeAttr(entry.obsidianUri)}" title="노트 열기">${escapeHtml(source)} ↗</a>`
         : escapeHtml(source);
       for (const item of items) {
         html.push(
           `<div class="rule-item" style="border-left-color:${escapeAttr(color)}">` +
             `<div class="rule-text">${renderMarkdown(item)}</div>` +
-            `<div class="rule-meta">${metaInner}</div>` +
+            `<div class="rule-meta">${meta}</div>` +
             `</div>`,
         );
       }
@@ -4580,23 +5292,59 @@ function renderRules(data, query) {
   els.rulesList.innerHTML = html.join("");
 }
 
+let _activityRequestController = null;
+let _activityRequestEpoch = 0;
+
 async function openActivityModal() {
   if (!els.activityModal) return;
+  _activityRequestController?.abort();
+  const controller = new AbortController();
+  _activityRequestController = controller;
+  const epoch = ++_activityRequestEpoch;
+  const isCurrent = () =>
+    epoch === _activityRequestEpoch &&
+    _activityRequestController === controller &&
+    !controller.signal.aborted &&
+    !els.activityModal.classList.contains("hidden");
+
   els.activityModal.classList.remove("hidden");
   els.activityModal.setAttribute("aria-hidden", "false");
-  els.activitySummary.innerHTML = "loading…";
+  els.activitySummary.className = "activity-summary is-loading";
+  els.activitySummary.innerHTML = `<span class="activity-loading"><span class="inline-spinner" aria-hidden="true"></span>학습 기록을 불러오는 중…</span>`;
   els.activityGrid.innerHTML = "";
   els.activityMonthLabels.innerHTML = "";
   try {
-    const data = await fetch("/api/activity?days=365").then((r) => r.json());
+    const data = await fetchJson("/api/activity?days=365", {
+      signal: controller.signal,
+      timeoutMs: 15_000,
+      retries: 1,
+    });
+    if (!isCurrent()) return;
+    els.activitySummary.className = "activity-summary";
     renderActivity(data);
   } catch (err) {
-    els.activitySummary.innerHTML = `로드 실패: ${escapeHtml(err.message)}`;
+    if (isAbortedRequest(err, controller.signal) || !isCurrent()) return;
+    const reason = readableLoadError(err);
+    els.activitySummary.className = "activity-summary is-error";
+    els.activitySummary.innerHTML = `
+      <span class="activity-error">학습 기록을 불러오지 못했어요 · ${escapeHtml(reason)}</span>
+      <button class="activity-retry" type="button">다시 시도</button>
+    `;
+    els.activitySummary
+      .querySelector(".activity-retry")
+      ?.addEventListener("click", openActivityModal);
+  } finally {
+    if (_activityRequestController === controller) {
+      _activityRequestController = null;
+    }
   }
 }
 
 function closeActivityModal() {
   if (!els.activityModal) return;
+  _activityRequestEpoch++;
+  _activityRequestController?.abort();
+  _activityRequestController = null;
   els.activityModal.classList.add("hidden");
   els.activityModal.setAttribute("aria-hidden", "true");
   hideActivityTooltip();
@@ -4756,32 +5504,82 @@ const _searchState = {
   selectedIndex: 0,
   lastQuery: "",
   inflight: null,
+  debounceTimer: null,
+  returnFocus: null,
 };
+
+function setSearchStatus(message) {
+  if (els.searchStatus) els.searchStatus.textContent = message;
+}
+
+function setSearchExpanded(expanded) {
+  els.searchInput?.setAttribute("aria-expanded", String(expanded));
+  if (!expanded) els.searchInput?.removeAttribute("aria-activedescendant");
+}
+
+function clearSearchResults() {
+  els.searchResults?.replaceChildren();
+  _searchState.items = [];
+  _searchState.selectedIndex = 0;
+  setSearchExpanded(false);
+}
+
+function trapSearchModalFocus(e) {
+  if (e.key !== "Tab" || els.searchModal?.classList.contains("hidden")) return;
+  const focusable = [els.searchInput, els.searchCloseBtn].filter(
+    (node) => node && !node.disabled,
+  );
+  if (focusable.length < 2) return;
+  const first = focusable[0];
+  const last = focusable[focusable.length - 1];
+  if (e.shiftKey && document.activeElement === first) {
+    e.preventDefault();
+    last.focus();
+  } else if (!e.shiftKey && document.activeElement === last) {
+    e.preventDefault();
+    first.focus();
+  }
+}
 
 function openSearchModal() {
   if (!els.searchModal) return;
+  if (els.searchModal.classList.contains("hidden")) {
+    _searchState.returnFocus =
+      document.activeElement instanceof HTMLElement
+        ? document.activeElement
+        : null;
+  }
+  clearTimeout(_searchState.debounceTimer);
+  _searchState.inflight = null;
   els.searchModal.classList.remove("hidden");
   els.searchModal.setAttribute("aria-hidden", "false");
   els.searchInput.value = "";
-  els.searchResults.innerHTML = `<div class="search-hint">최소 2글자 입력해 검색</div>`;
-  _searchState.items = [];
-  _searchState.selectedIndex = 0;
+  clearSearchResults();
+  setSearchStatus("");
   _searchState.lastQuery = "";
   setTimeout(() => els.searchInput.focus(), 0);
 }
 
 function closeSearchModal() {
   if (!els.searchModal) return;
+  clearTimeout(_searchState.debounceTimer);
+  _searchState.inflight = null;
   els.searchModal.classList.add("hidden");
   els.searchModal.setAttribute("aria-hidden", "true");
+  setSearchExpanded(false);
+  setSearchStatus("");
+  const returnFocus = _searchState.returnFocus;
+  _searchState.returnFocus = null;
+  if (returnFocus?.isConnected) returnFocus.focus();
 }
 
 async function runSearch(q) {
   const trimmed = q.trim();
   if (trimmed.length < 2) {
-    els.searchResults.innerHTML = `<div class="search-hint">최소 2글자 입력해 검색</div>`;
-    _searchState.items = [];
-    _searchState.selectedIndex = 0;
+    _searchState.inflight = null;
+    _searchState.lastQuery = "";
+    clearSearchResults();
+    setSearchStatus(trimmed ? "한 글자 더 입력하세요." : "");
     return;
   }
   if (trimmed === _searchState.lastQuery) return;
@@ -4790,6 +5588,8 @@ async function runSearch(q) {
   // 이전 inflight 무시 (덮어쓰기)
   const myToken = (_searchState.inflight = Symbol("search"));
   els.searchResults.innerHTML = `<div class="search-hint">검색 중…</div>`;
+  setSearchExpanded(false);
+  setSearchStatus("검색 중입니다.");
   try {
     const res = await fetch(
       `/api/search?q=${encodeURIComponent(trimmed)}`,
@@ -4798,7 +5598,10 @@ async function runSearch(q) {
     renderSearchResults(res, trimmed);
   } catch (err) {
     if (_searchState.inflight !== myToken) return;
+    _searchState.lastQuery = "";
     els.searchResults.innerHTML = `<div class="search-hint">검색 실패: ${escapeHtml(err.message)}</div>`;
+    setSearchExpanded(false);
+    setSearchStatus("검색에 실패했습니다. 다시 시도할 수 있습니다.");
   }
 }
 
@@ -4847,6 +5650,8 @@ function renderSearchResults(res, q) {
 
   if (items.length === 0) {
     els.searchResults.innerHTML = `<div class="search-hint">결과 없음</div>`;
+    setSearchExpanded(false);
+    setSearchStatus("검색 결과가 없습니다.");
     return;
   }
   const sections = [];
@@ -4865,7 +5670,7 @@ function renderSearchResults(res, q) {
     for (const it of group) {
       const idxInFlat = items.indexOf(it);
       sections.push(`
-        <div class="search-item" data-idx="${idxInFlat}">
+        <div id="search-option-${idxInFlat}" class="search-item" role="option" aria-selected="false" data-idx="${idxInFlat}">
           <div class="search-item-label">${highlight(it.label, q)}</div>
           <div class="search-item-sublabel">${highlight(it.sublabel, q)}</div>
         </div>
@@ -4874,6 +5679,8 @@ function renderSearchResults(res, q) {
     }
   }
   els.searchResults.innerHTML = sections.join("");
+  setSearchExpanded(true);
+  setSearchStatus(`검색 결과 ${items.length}개`);
   updateSearchSelection();
   els.searchResults.querySelectorAll(".search-item").forEach((el) => {
     el.addEventListener("click", () => {
@@ -4889,13 +5696,23 @@ function renderSearchResults(res, q) {
 
 function updateSearchSelection() {
   const nodes = els.searchResults.querySelectorAll(".search-item");
+  let activeId = "";
   nodes.forEach((n) => {
     const isActive = Number(n.dataset.idx) === _searchState.selectedIndex;
     n.classList.toggle("active", isActive);
+    n.setAttribute("aria-selected", String(isActive));
+    if (isActive) {
+      activeId = n.id;
+    }
     if (isActive && typeof n.scrollIntoView === "function") {
       n.scrollIntoView({ block: "nearest" });
     }
   });
+  if (activeId) {
+    els.searchInput?.setAttribute("aria-activedescendant", activeId);
+  } else {
+    els.searchInput?.removeAttribute("aria-activedescendant");
+  }
 }
 
 function moveSearchSelection(delta) {
@@ -4939,13 +5756,17 @@ async function refreshSidebarRoadmaps() {
 }
 
 let _activePopover = null;
+let _activePopoverReturnFocus = null;
 
-function closeDeletePopover() {
+function closeDeletePopover({ restoreFocus = false } = {}) {
   if (_activePopover) {
+    const returnFocus = _activePopoverReturnFocus;
     _activePopover.remove();
     _activePopover = null;
+    _activePopoverReturnFocus = null;
     document.removeEventListener("mousedown", _onOutsideClick, true);
     document.removeEventListener("keydown", _onPopoverKey, true);
+    if (restoreFocus && returnFocus?.isConnected) returnFocus.focus();
   }
 }
 
@@ -4956,7 +5777,7 @@ function _onOutsideClick(e) {
 }
 
 function _onPopoverKey(e) {
-  if (e.key === "Escape") closeDeletePopover();
+  if (e.key === "Escape") closeDeletePopover({ restoreFocus: true });
 }
 
 /**
@@ -4993,7 +5814,7 @@ function openDeletePopover(anchorEl, target) {
         ? `이 로드맵의 d${depths[0]} 삭제 (초기화)`
         : `d${depths[0]} 삭제 (초기화)`;
   const allBtn = `<button class="delete-popover-item danger" data-all="1">${allLabel}</button>`;
-  const hint = `<div class="delete-popover-hint">vault의 spiral-buddy/.trash/로 이동 — 복구 가능</div>`;
+  const hint = `<div class="delete-popover-hint">vault의 ${escapeHtml(activeWorkspaceVaultSubDir())}/.trash/로 이동 — 복구 가능</div>`;
 
   pop.innerHTML = header + perDepthBtns + allBtn + hint;
 
@@ -5064,25 +5885,48 @@ function renderHistory() {
   state.history.forEach((note) => {
     const li = document.createElement("li");
     li.className = "history-item";
-    // v0.5.106 — 아이템 클릭 = 그때 나눈 대화를 메인창에 read-only로 다시보기.
-    // (Obsidian으로 가는 건 옆 📖 버튼으로 분리.)
-    li.setAttribute("role", "button");
-    li.tabIndex = 0;
-    li.title = "클릭하면 이 세션의 대화를 다시 봅니다";
     const obsidianBtn = note.obsidianUri
-      ? `<button class="history-obsidian-btn" data-obsidian="${escapeAttr(note.obsidianUri)}" title="Obsidian에서 노트 열기" aria-label="Obsidian에서 열기">📖</button>`
+      ? `<button type="button" class="history-detail-btn history-obsidian-btn" data-obsidian="${escapeAttr(note.obsidianUri)}">
+          <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"></path>
+            <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"></path>
+          </svg>
+          노트 열기
+        </button>`
       : "";
     li.innerHTML = `
-      <div class="row1">
-        <span class="depth-pill">d${note.depth}</span>
-        <span class="topic">${escapeHtml(note.topic)}</span>
-        ${obsidianBtn}
-      </div>
-      <div class="row2">
-        <span class="date">${escapeHtml(note.date)}</span>
-        ${note.summary ? `<span class="summary">${escapeHtml(note.summary)}</span>` : ""}
-      </div>
+      <details class="history-disclosure">
+        <summary>
+          <span class="depth-pill">d${note.depth}</span>
+          <span class="topic">${escapeHtml(note.topic)}</span>
+          <svg class="history-disclosure-icon" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <polyline points="9 18 15 12 9 6"></polyline>
+          </svg>
+        </summary>
+        <div class="history-details">
+          <div class="history-date">
+            <span>학습일</span>
+            <time datetime="${escapeAttr(note.date)}">${escapeHtml(note.date)}</time>
+          </div>
+          ${note.summary ? `<p class="history-summary">${escapeHtml(note.summary)}</p>` : ""}
+          <div class="history-detail-actions">
+            <button type="button" class="history-detail-btn primary history-conversation-btn">
+              <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M21 15a4 4 0 0 1-4 4H8l-5 3V7a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4z"></path>
+              </svg>
+              대화 보기
+            </button>
+            ${obsidianBtn}
+          </div>
+        </div>
+      </details>
     `;
+    const conversationBtn = li.querySelector(".history-conversation-btn");
+    conversationBtn?.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      openPastConversation(note);
+    });
     const obtn = li.querySelector(".history-obsidian-btn");
     if (obtn) {
       obtn.addEventListener("click", (e) => {
@@ -5091,13 +5935,6 @@ function renderHistory() {
         window.spiralSetup?.openExternal?.(obtn.dataset.obsidian);
       });
     }
-    li.addEventListener("click", () => openPastConversation(note));
-    li.addEventListener("keydown", (e) => {
-      if (e.key === "Enter" || e.key === " ") {
-        e.preventDefault();
-        openPastConversation(note);
-      }
-    });
     els.historyList.appendChild(li);
   });
 }
@@ -5132,7 +5969,7 @@ function showPastConversationModal(note, data) {
   const bubbles = msgs.length
     ? msgs
         .map((m) => {
-          const who = m.role === "user" ? "나" : "버디";
+          const who = m.role === "user" ? "YOU" : "BUDDY";
           const cls = m.role === "user" ? "user" : "assistant";
           const content =
             m.role === "assistant"
@@ -5176,37 +6013,6 @@ function showPastConversationModal(note, data) {
   });
 }
 
-function renderSuggestion() {
-  const s = state.suggestion;
-  if (!s) {
-    els.suggestion.innerHTML = `<div class="empty">no suggestion</div>`;
-    return;
-  }
-  const chapter = state.chapters.find((c) => c.id === s.recommendedChapterId);
-  els.suggestion.innerHTML = `
-    <div class="suggestion-mode">🧭 ${s.mode}</div>
-    ${
-      chapter
-        ? `<div class="suggestion-title">${escapeHtml(chapter.title)}</div>`
-        : ""
-    }
-    <div class="suggestion-rationale">${escapeHtml(s.rationale)}</div>
-    ${
-      chapter
-        ? `<button class="start-suggested primary">Start with this</button>`
-        : ""
-    }
-  `;
-  const btn = els.suggestion.querySelector(".start-suggested");
-  if (btn && chapter) {
-    btn.addEventListener("click", async () => {
-      const decision = await handleSessionInterruption();
-      if (decision === "cancel") return;
-      startSession(chapter.id);
-    });
-  }
-}
-
 // ──────────────────────────────────────────────────────────
 // Session
 // ──────────────────────────────────────────────────────────
@@ -5230,22 +6036,8 @@ async function startSession(chapterId) {
   abortStreams("session");
   const handle = createStreamHandle("session");
   try {
-    els.messages.innerHTML = "";
-    state.messages = [];
-
-    // 이전 세션의 lookup 카드 자동 비우기 — 챕터별로 깨끗하게 시작
-    // v0.5.73 — 카드를 비우기 전에 진행 중 lookup 스트림부터 중단
-    abortStreams("lookup");
-    if (els.lookupPanelBody) {
-      els.lookupPanelBody.innerHTML = "";
-      _lookupState.cardCount = 0;
-    }
-
-    // 퀴즈 단계 리셋 (v0.5.31 #8)
-    resetQuiz();
-
     const chapter = state.chapters.find((c) => c.id === chapterId);
-    setStatus("Starting session…");
+    setStatus("학습을 여는 중…");
     setPending(true);
 
     const res = await fetch("/api/session/start", {
@@ -5279,6 +6071,18 @@ async function startSession(chapterId) {
       roadmapId: decodeURIComponent(roadmapIdEnc),
       roadmapName: decodeURIComponent(roadmapNameEnc),
     };
+
+    // 서버가 세션 시작을 수락한 뒤에만 홈과 보조 노트를 비운다.
+    // 네트워크 실패 시 사용자가 같은 CTA로 즉시 재시도할 수 있어야 한다.
+    els.messages.innerHTML = "";
+    state.messages = [];
+    abortStreams("lookup");
+    if (els.lookupPanelBody) {
+      els.lookupPanelBody.innerHTML = "";
+      _lookupState.cardCount = 0;
+    }
+    resetQuiz();
+
     _sessionEpoch++; // 새 세션 성립 → 진행 중인 옛 end-op의 늦은 정리를 무효화
     refreshPausedList(); // 일시정지 목록 갱신
     updateTopbar();
@@ -5308,6 +6112,7 @@ async function startSession(chapterId) {
     } else {
       enableSessionUi(false);
       state.session = null;
+      renderLearningHub();
       setStatus(`세션 시작 실패: ${err.message} — 챕터를 다시 클릭해주세요`, "error");
     }
   } finally {
@@ -5333,30 +6138,30 @@ const QUIZ_LEVELS = [
   {
     level: 1,
     label: "원리 확인",
-    color: "violet",
+    tone: "recall",
     prompt:
       "지금까지 다룬 내용에서 핵심 원리(메커니즘)를 짚는 짧은 질문 2개를 내줘. 답은 알려주지 말고, 내가 먼저 말해보게 해줘.",
   },
   {
     level: 2,
     label: "적용",
-    color: "cyan",
+    tone: "apply",
     prompt:
       "오늘 배운 원리를 살짝 다른 상황에 적용해야 답할 수 있는 질문 2개를 내줘. 답은 알려주지 마.",
   },
   {
     level: 3,
     label: "반례·경계조건",
-    color: "orange",
+    tone: "challenge",
     prompt:
       "오늘 다룬 원리가 무너지는 조건, 흔한 오해, 또는 반례를 찌르는 날카로운 질문 2개를 내줘. 답은 알려주지 마.",
   },
   {
     level: 4,
     label: "판단 시나리오",
-    color: "gold",
+    tone: "synthesis",
     prompt:
-      "오늘 다룬 원리 + 관련된 사전 지식까지 엮어서 판단해야 하는, 실제 의사결정 상황의 종합 시나리오 1개를 내줘. 마지막엔 '그래서 너라면 어떻게 결정할래?'로 끝내고, 답을 풀어주지 말고 내가 생각해보게 해줘.",
+      "오늘 다룬 원리 + 관련된 사전 지식까지 엮어서 판단해야 하는 실제 의사결정 상황의 종합 시나리오 1개를 내줘. 마지막에는 ‘그래서 너라면 어떻게 결정할래?’로 끝내고 답은 알려주지 마.",
   },
 ];
 
@@ -5381,10 +6186,11 @@ function updateQuizButton() {
   const labelEl = els.quizBtn.querySelector("span");
   if (labelEl) {
     labelEl.textContent =
-      next.level === 1 ? "Quiz" : `Quiz · ${next.level}`;
+      next.level === 1 ? "퀴즈" : `퀴즈 · ${next.level}`;
   }
   // data-level로 색 변화
   els.quizBtn.dataset.quizLevel = String(next.level);
+  els.quizBtn.dataset.quizTone = next.tone;
   els.quizBtn.title = `퀴즈 ${next.level}/${QUIZ_LEVELS.length} — ${next.label}`;
 }
 
@@ -5433,13 +6239,14 @@ function setRefining(on) {
   state.refining = on;
   if (!els.refineBtn) return;
   els.refineBtn.classList.toggle("is-loading", on);
+  els.refineBtn.setAttribute("aria-busy", String(on));
   els.refineBtn.disabled = on || state.pending || !state.session;
   els.input.disabled = on || !state.session;
-  if (on) setStatus("프롬프트 다듬는 중…");
-  else if (els.statusBar?.textContent === "프롬프트 다듬는 중…") setStatus("");
+  if (on) setStatus("문장을 다듬는 중…");
+  else if (els.statusBar?.textContent === "문장을 다듬는 중…") setStatus("");
 }
 
-function showRefineBar(label = "프롬프트가 다듬어졌어요") {
+function showRefineBar(label = "문장을 다듬었어요") {
   if (!els.refineBar) return;
   if (els.refineBarText) els.refineBarText.textContent = label;
   els.refineBar.classList.remove("hidden");
@@ -5469,7 +6276,7 @@ async function refineInPlace() {
   if (!state.session || state.pending || state.refining) return;
   const raw = els.input.value.trim();
   if (raw.length < 2) {
-    setStatus("다듬을 내용이 너무 짧아요.", "error");
+    setStatus("다듬을 문장이 너무 짧아요.", "error");
     setTimeout(() => setStatus(""), 1800);
     return;
   }
@@ -5486,12 +6293,12 @@ async function refineInPlace() {
     state.refineOriginal = originalForRollback;
     state.refineApplied = refined;
     els.input.value = refined;
-    showRefineBar("프롬프트가 다듬어졌어요 — ⌘Z 또는 [원본]으로 되돌릴 수 있어요");
+    showRefineBar("문장을 다듬었어요 — ⌘Z 또는 [원본]으로 되돌릴 수 있어요");
     els.input.focus();
     const len = els.input.value.length;
     els.input.setSelectionRange(len, len);
   } catch (err) {
-    setStatus(`다듬기 실패: ${err.message}`, "error");
+    setStatus(`문장을 다듬지 못했어요: ${err.message}`, "error");
     setTimeout(() => setStatus(""), 2500);
   } finally {
     setRefining(false);
@@ -5509,13 +6316,13 @@ async function refineThenSend() {
     if (refined && refined !== raw) {
       toSend = refined;
       // 보낸 직후에도 마지막 메시지의 원본을 잠깐 알 수 있게 status로
-      setStatus(`다듬어 보냄: "${truncate(raw, 40)}" → "${truncate(refined, 40)}"`);
+      setStatus(`문장을 다듬어 보냈어요: "${truncate(raw, 40)}" → "${truncate(refined, 40)}"`);
       setTimeout(() => {
-        if (els.statusBar?.textContent?.startsWith("다듬어 보냄:")) setStatus("");
+        if (els.statusBar?.textContent?.startsWith("문장을 다듬어 보냈어요:")) setStatus("");
       }, 4000);
     }
   } catch (err) {
-    setStatus(`다듬기 실패 — 원본 그대로 보냄`, "error");
+    setStatus("문장을 다듬지 못해 원문 그대로 보냈어요", "error");
     setTimeout(() => setStatus(""), 2500);
   } finally {
     setRefining(false);
@@ -5546,7 +6353,7 @@ async function sendMessage(text) {
     await streamInto(res, assistantEl, handle);
   } catch (err) {
     if (!isIntentionalAbort(err, handle)) {
-      setStatus(`Message failed: ${err.message}`, "error");
+      setStatus(`메시지를 보내지 못했어요: ${err.message}`, "error");
     }
   } finally {
     finishStreamHandle(handle);
@@ -5674,12 +6481,13 @@ async function pauseSession() {
   els.messages.innerHTML = "";
   enableSessionUi(false);
   updateTopbar();
-  renderChapters(); // v0.4.7 — 활성 강조 폴백(마지막 저장 챕터)
-  setStatus(`⏸ "${meta.chapterTitle}" 일시정지됨 — 좌측 PAUSED에서 언제든 이어가기`);
+  renderChapters(); // v0.5.98 — 진행 중 세션 없음 → 활성 표식 마지막 학습 챕터로 폴백
+  setStatus(`"${meta.chapterTitle}"을 잠시 멈췄어요 — 왼쪽 ‘잠시 멈춘 학습’에서 이어갈 수 있어요`);
   setTimeout(() => {
-    if (els.statusBar?.textContent?.startsWith("⏸")) setStatus("");
+    if (els.statusBar?.textContent?.startsWith(`"${meta.chapterTitle}"`)) setStatus("");
   }, 3500);
   refreshPausedList();
+  renderLearningHub();
 }
 
 async function resumePausedSession(id) {
@@ -5776,6 +6584,7 @@ async function discardPausedSession(id) {
   } catch {}
   writePausedList(list.filter((p) => p.id !== id));
   refreshPausedList();
+  if (!state.session) renderLearningHub();
   setStatus("일시정지 세션 폐기됨");
   setTimeout(() => setStatus(""), 1500);
 }
@@ -5894,7 +6703,7 @@ async function endSession() {
     card.classList.add("error");
     const titleEl = card.querySelector(".end-progress-card-title");
     if (titleEl) titleEl.innerHTML = `<span style="color:#f85149">❌ 저장 실패</span>`;
-    setStatus(`End failed: ${err.message}`, "error");
+    setStatus(`기록을 저장하지 못했어요: ${err.message}`, "error");
   } finally {
     finishStreamHandle(endHandle);
     // 늦게 끝난 end-op이 새 세션 B의 pending 상태를 뒤엎지 않도록, 내가 여전히
@@ -5904,8 +6713,8 @@ async function endSession() {
 }
 
 const END_STAGES = [
-  { stage: "analyzing", label: "대화 분석 & 구조화", detail: "8섹션 노트 생성" },
-  { stage: "writing", label: "노트 파일 작성", detail: "frontmatter + 본문" },
+  { stage: "analyzing", label: "학습 기록 정리", detail: "8개 항목으로 정리" },
+  { stage: "writing", label: "노트 파일 작성", detail: "노트 정보와 본문" },
   { stage: "saving", label: "Obsidian vault에 저장", detail: "디스크 기록" },
 ];
 
@@ -6117,7 +6926,7 @@ function appendUserMessage(text, opts = {}) {
   const div = document.createElement("div");
   div.className = "message user";
   div.innerHTML = `
-    <div class="role">You</div>
+    <div class="role">YOU</div>
     <div class="content"></div>
   `;
   // textContent로 입력 — 줄바꿈은 CSS white-space: pre-wrap이 유지함
@@ -6135,16 +6944,14 @@ function appendAssistantMessage(initialMarkdown) {
   const div = document.createElement("div");
   div.className = "message assistant";
   div.innerHTML = `
-    <div class="role">Buddy</div>
+    <div class="role">BUDDY</div>
     <div class="content"></div>
-    ${renderFeedbackBar("msg")}
     ${_renderChapterContextBtn()}
   `;
   if (initialMarkdown) {
     div.querySelector(".content").innerHTML = renderMarkdown(initialMarkdown);
   }
   els.messages.appendChild(div);
-  wireFeedbackBar(div.querySelector(".feedback-bar"));
   _wireChapterContextBtn(div);
   scrollToBottom();
   return div;
@@ -6180,19 +6987,46 @@ function updateTopbar() {
   if (state.session) {
     const rmName = state.session.roadmapName ?? "";
     els.topbar.innerHTML = `
-      <svg class="topbar-chapter-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-        <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/>
-        <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/>
-      </svg>
-      <strong class="topbar-chapter-title" title="${escapeAttr(state.session.chapterTitle)}${rmName ? ` — ${escapeAttr(rmName)}` : ""}">${escapeHtml(state.session.chapterTitle)}</strong>
-      <span class="depth">depth ${state.session.depth}</span>
+      <button class="current-chapter-jump" type="button" title="사이드바에서 현재 학습 위치 보기" aria-label="${escapeAttr(state.session.chapterTitle)} — 사이드바에서 현재 학습 위치 보기" aria-controls="roadmap-list" aria-expanded="${String(!els.roadmapList.classList.contains("hidden"))}">
+        <svg class="topbar-chapter-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/>
+          <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/>
+        </svg>
+        <strong class="topbar-chapter-title" title="${escapeAttr(state.session.chapterTitle)}${rmName ? ` — ${escapeAttr(rmName)}` : ""}">${escapeHtml(state.session.chapterTitle)}</strong>
+        <span class="depth">depth ${state.session.depth}</span>
+        <svg class="current-chapter-jump-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <polyline points="9 18 15 12 9 6"/>
+        </svg>
+      </button>
     `;
   } else {
-    els.topbar.textContent = "";
+    const activeRoadmap = state.roadmaps.find(
+      (roadmap) => roadmap.id === state.activeRoadmapId,
+    );
+    if (activeRoadmap) {
+      const completed = Number(activeRoadmap.visitedChapters ?? 0);
+      const total = Number(activeRoadmap.chapterCount ?? state.chapters.length);
+      els.topbar.innerHTML = `
+        <button class="current-chapter-jump topbar-home-jump" type="button" title="현재 학습 경로 보기" aria-label="${escapeAttr(displayRepoName(activeRoadmap.name))} — 학습 경로 보기" aria-controls="roadmap-list" aria-expanded="${String(!els.roadmapList.classList.contains("hidden"))}">
+          <strong class="topbar-chapter-title">${escapeHtml(displayRepoName(activeRoadmap.name))}</strong>
+          <span class="topbar-home-progress">${completed}/${total}</span>
+          <svg class="current-chapter-jump-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <polyline points="9 18 15 12 9 6"/>
+          </svg>
+        </button>
+      `;
+    } else {
+      els.topbar.innerHTML = `
+        <div class="topbar-home-copy">
+          <strong>학습 경로를 준비해 주세요</strong>
+        </div>
+      `;
+    }
   }
 }
 
 function enableSessionUi(enabled) {
+  document.body.classList.toggle("session-active", enabled);
   els.input.disabled = !enabled;
   els.sendBtn.disabled = !enabled;
   els.endBtn.disabled = !enabled;
@@ -6200,17 +7034,22 @@ function enableSessionUi(enabled) {
   if (els.pauseBtn) els.pauseBtn.disabled = !enabled;
   if (els.refineBtn) els.refineBtn.disabled = !enabled;
   els.input.placeholder = enabled
-    ? "메시지 입력 후 Enter (Shift+Enter는 줄바꿈) — 다듬어 보내기 ⌘⇧↵"
+    ? "궁금한 점이나 이해한 내용을 적어보세요."
     : "세션을 시작하면 입력할 수 있어요";
 }
 
 function setPending(p) {
   state.pending = p;
+  els.sendBtn.setAttribute("aria-busy", String(p));
   els.sendBtn.disabled = p || !state.session;
   els.endBtn.disabled = p || !state.session;
   els.quizBtn.disabled = p || !state.session;
   if (els.pauseBtn) els.pauseBtn.disabled = p || !state.session;
   if (els.refineBtn) {
+    els.refineBtn.setAttribute(
+      "aria-busy",
+      String(p || state.refining === true),
+    );
     els.refineBtn.disabled = p || !state.session || state.refining === true;
   }
 }
@@ -6268,4 +7107,3 @@ function scrollToBottom(force = false) {
   if (!force && !_scrollState.messagesStick) return;
   els.messages.scrollTop = els.messages.scrollHeight;
 }
-

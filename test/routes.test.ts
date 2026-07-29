@@ -7,7 +7,7 @@ import path from "node:path";
 import { createApi } from "../src/routes.js";
 import type { Config } from "../src/config.js";
 import { invalidateRoadmapCaches } from "../src/roadmap.js";
-import { invalidateNotesCache } from "../src/vault.js";
+import { invalidateNotesCache, writeNewNote } from "../src/vault.js";
 
 // ─────────────────────────────────────────────────────────────────────────
 // These tests pin the HTTP surface of createApi() — the contract the upcoming
@@ -272,17 +272,22 @@ describe("GET /search", () => {
     assert.deepEqual(body.notes, []); // empty vault
   });
 
-  test("matches chapter by title within a matched roadmap", async () => {
+  test("matches a chapter title even when its roadmap and notes do not match", async () => {
     const app = createApi(baseConfig());
-    // "garbage" only appears in chapter 02 title, not the roadmap name —
-    // but the roadmap is reached via... actually the roadmap won't match
-    // "garbage". So chapter search only runs over candidate roadmaps
-    // (matched roadmaps + roadmaps with matching notes). With no name match
-    // and no notes, there are zero candidate roadmaps -> no chapter hits.
+    // "garbage" only appears in chapter 02's title. Chapter search must not
+    // depend on a roadmap-name or note match to discover it.
     const res = await app.request("/search?q=garbage");
     const body = await res.json();
     assert.deepEqual(body.roadmaps, []);
-    assert.deepEqual(body.chapters, []);
+    assert.deepEqual(body.notes, []);
+    assert.deepEqual(body.chapters, [
+      {
+        roadmapId: "jvm-deep-dive",
+        roadmapName: "jvm-deep-dive",
+        chapterId: "02-y.md",
+        title: "Garbage Collection",
+      },
+    ]);
   });
 
   test("query matching both roadmap name and a chapter id yields chapter hits", async () => {
@@ -361,6 +366,48 @@ describe("GET /history", () => {
       assert.deepEqual(filtered, []); // 미지 id → 빈 결과 (노트 누출 X)
     } finally {
       await fs.rm(v, { recursive: true, force: true });
+    }
+  });
+
+  test("Obsidian links use the Green vault sub-directory by default", async () => {
+    const isolatedVault = await fs.mkdtemp(
+      path.join(os.tmpdir(), "spiral-routes-green-vault-"),
+    );
+    try {
+      await writeNewNote(isolatedVault, {
+        topic: "Green isolation",
+        chapterId: "01-x.md",
+        roadmapId: "jvm-deep-dive",
+        roadmapName: "jvm-deep-dive",
+        repo: null,
+        roadmap: "jvm-deep-dive",
+        depth: 1,
+        tags: ["green"],
+        summary: "Green vault identity",
+        body: "## 핵심 원리\nGreen",
+        relatedNotePaths: [],
+      });
+      invalidateNotesCache();
+      const app = createApi(
+        baseConfig({
+          vaultPath: isolatedVault,
+          vaultName: "GreenVault",
+          obsidianVaultRoot: isolatedVault,
+        }),
+      );
+      const res = await app.request("/history");
+      assert.equal(res.status, 200);
+      const body = await res.json();
+      assert.equal(body.length, 1);
+      const uri = new URL(body[0].obsidianUri);
+      assert.equal(uri.searchParams.get("vault"), "GreenVault");
+      assert.match(
+        uri.searchParams.get("file") ?? "",
+        /^spiral-buddy-green\//,
+      );
+    } finally {
+      await fs.rm(isolatedVault, { recursive: true, force: true });
+      invalidateNotesCache();
     }
   });
 });

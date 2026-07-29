@@ -31,6 +31,7 @@ import {
   readFullNote,
   restoreFromTrash,
   writeNewNote,
+  getSpiralVaultSubDir,
 } from "./vault.js";
 import { suggestNext } from "./spiral.js";
 import {
@@ -62,6 +63,7 @@ import {
   normalizeRepoName,
   findDomainForCategory,
 } from "./categories.js";
+import { mapWithConcurrency } from "./async-utils.js";
 
 // GET /roadmaps 의 per-roadmap 보강 — 노트 진도(visited/maxDepth/depths/lastDate) +
 // 카테고리/도메인/계층(hierarchy) 부착. (GET /roadmaps 핸들러에서 분리.)
@@ -196,7 +198,7 @@ async function sortRoadmapsByCategory(
 // 노트 파일경로 → obsidian://open URL (vault 미설정 시 null).
 function obsidianUri(config: Config, fileNameOrPath: string): string | null {
   if (!config.vaultName || !config.vaultPath) return null;
-  const vaultSubDir = process.env.SPIRAL_VAULT_SUBDIR?.trim() || "spiral-buddy";
+  const vaultSubDir = getSpiralVaultSubDir();
   const absPath = path.isAbsolute(fileNameOrPath)
     ? fileNameOrPath
     : path.join(config.vaultPath, vaultSubDir, fileNameOrPath);
@@ -321,7 +323,12 @@ function registerCoreRoutes(app: Hono, config: Config) {
   // ─────────────────────────────────────────────────────
 
   app.get("/roadmaps", async (c) => {
-    const roadmaps = await getInstalledRoadmaps(config);
+    // 대규모 iCloud 로드맵 탐색과 vault frontmatter 탐색은 서로 독립이다.
+    // 직렬 대기하지 않고 동시에 시작해 cold-start 시간을 둘의 합이 아닌 최댓값으로.
+    const [roadmaps, notes] = await Promise.all([
+      getInstalledRoadmaps(config),
+      config.vaultPath ? listSpiralNotes(config.vaultPath) : Promise.resolve([]),
+    ]);
     if (roadmaps.length === 0 && !config.curatedOrg && !config.roadmapRoot) {
       return c.json(
         {
@@ -331,8 +338,6 @@ function registerCoreRoutes(app: Hono, config: Config) {
         400,
       );
     }
-    const notes = config.vaultPath ? await listSpiralNotes(config.vaultPath) : [];
-
     const enriched = await Promise.all(
       roadmaps.map((r) => enrichRoadmap(r, notes, config)),
     );
@@ -428,13 +433,18 @@ function registerChapterRoutes(app: Hono, config: Config, client: ClaudeClient) 
 
   app.get("/chapters", async (c) => {
     const roadmapId = c.req.query("roadmap_id") ?? null;
+    const notesPromise = config.vaultPath
+      ? listSpiralNotes(config.vaultPath)
+      : Promise.resolve([]);
     const roadmap = await resolveRoadmap(config, roadmapId);
     if (!roadmap) {
       return c.json({ error: "Roadmap not found" }, 404);
     }
 
-    const chapters = await loadRoadmapChapters(roadmap);
-    const notes = config.vaultPath ? await listSpiralNotes(config.vaultPath) : [];
+    const [chapters, notes] = await Promise.all([
+      loadRoadmapChapters(roadmap),
+      notesPromise,
+    ]);
 
     // v0.5.70 — 챕터별 AI 카드 캐시 여부를 미리 확인.
     // 사이드바에서 💡 버튼 외관(채워짐 vs 비어있음)을 결정.
@@ -622,41 +632,35 @@ function registerSearchNotesRoutes(app: Hono, config: Config) {
         obsidianUrl: obsidianUri(config, n.filePath),
       }));
 
-    // 3) 챕터 매칭 — 매칭된 로드맵 + 노트가 있는 로드맵 안에서만 (성능)
-    const candidateRoadmaps = new Map<string, Roadmap>();
-    for (const r of roadmapMatches.map((rm) => roadmaps.find((r2) => r2.id === rm.id))) {
-      if (r) candidateRoadmaps.set(r.id, r);
-    }
-    for (const n of noteMatches) {
-      if (n.roadmapId) {
-        const r = roadmaps.find((r2) => r2.id === n.roadmapId);
-        if (r) candidateRoadmaps.set(r.id, r);
-      }
-    }
-    const chapterMatches: Array<{
+    // 3) 챕터 매칭 — 로드맵/노트 매칭 여부와 무관하게 모든 설치 로드맵을
+    // 검색한다. 파일 I/O는 제한된 동시성으로 수행하고 설치 순서를 보존한다.
+    type ChapterMatch = {
       roadmapId: string;
       roadmapName: string;
       chapterId: string;
       title: string;
-    }> = [];
-    for (const r of candidateRoadmaps.values()) {
-      const chapters = await loadRoadmapChapters(r);
-      for (const ch of chapters) {
-        if (
-          ch.title.toLowerCase().includes(q) ||
-          ch.id.toLowerCase().includes(q)
-        ) {
-          chapterMatches.push({
+    };
+    const chapterMatchGroups = await mapWithConcurrency(
+      roadmaps,
+      4,
+      async (r): Promise<ChapterMatch[]> => {
+        const chapters = await loadRoadmapChapters(r);
+        return chapters
+          .filter(
+            (ch) =>
+              ch.title.toLowerCase().includes(q) ||
+              ch.id.toLowerCase().includes(q),
+          )
+          .slice(0, 15)
+          .map((ch) => ({
             roadmapId: r.id,
             roadmapName: r.name,
             chapterId: ch.id,
             title: ch.title,
-          });
-          if (chapterMatches.length >= 15) break;
-        }
-      }
-      if (chapterMatches.length >= 15) break;
-    }
+          }));
+      },
+    );
+    const chapterMatches = chapterMatchGroups.flat().slice(0, 15);
 
     return c.json({
       roadmaps: roadmapMatches,
@@ -835,6 +839,7 @@ function registerSearchNotesRoutes(app: Hono, config: Config) {
         roadmapId: n.roadmapId,
         roadmapName: n.roadmapName,
         date: n.date,
+        modifiedAt: n.modifiedAt,
         depth: n.depth,
         summary: n.summary,
         relativePath: n.relativePath,

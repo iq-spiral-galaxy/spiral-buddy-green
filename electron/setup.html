@@ -6,15 +6,15 @@
     <title>Spiral Buddy Green — 초기 설정</title>
     <style>
       :root {
-        --bg: #08120c;
-        --bg-elev: #111e16;
-        --bg-elev-2: #17271d;
-        --border: rgba(150, 182, 164, 0.22);
-        --border-soft: rgba(150, 182, 164, 0.12);
+        --bg: #090c12;
+        --bg-elev: #121821;
+        --bg-elev-2: #19212c;
+        --border: rgba(148, 169, 190, 0.22);
+        --border-soft: rgba(148, 169, 190, 0.12);
         --text: #edf3f5;
         --text-dim: #a6b2bb;
         --text-faint: #74818b;
-        --accent: #a9c5b4;
+        --accent: #a9bac5;
         --accent-warm: #d1a06f;
         --danger: #ff7a7a;
       }
@@ -290,58 +290,236 @@
         margin-left: auto;
         font-size: 9px; font-weight: 700;
         padding: 1px 6px; border-radius: 999px;
-        background: rgba(110, 231, 183, 0.16); color: #6ee7b7;
+        background: rgba(126, 226, 255, 0.16); color: #7ee2ff;
       }
       .setup-preset-tag.heavy { background: rgba(255, 138, 91, 0.16); color: #ff8a5b; }
       .setup-preset-sub {
-        font-size: 11px; color: rgba(160, 188, 170, 0.8); line-height: 1.4;
+        font-size: 11px; color: rgba(159, 179, 193, 0.8); line-height: 1.4;
       }
       .setup-presets-hint {
-        font-size: 11px; color: rgba(160, 188, 170, 0.65);
+        font-size: 11px; color: rgba(159, 179, 193, 0.65);
         margin-top: 8px; padding: 6px 2px;
       }
-      .setup-presets-hint strong { color: rgba(160, 188, 170, 0.95); }
+      .setup-presets-hint strong { color: rgba(159, 179, 193, 0.95); }
+
+      /* Spiral Buddy Green — white-first setup */
+      :root {
+        color-scheme: light;
+        --bg: #f2f8f4;
+        --bg-elev: #ffffff;
+        --bg-elev-2: #ebf4ee;
+        --border: #ccd9cf;
+        --border-soft: #dfe9e1;
+        --text: #13261d;
+        --text-dim: #50675c;
+        --text-faint: #6d8075;
+        --accent: #059669;
+        --accent-warm: #059669;
+        --danger: #c93c45;
+      }
+      html {
+        background: var(--bg);
+      }
+      body {
+        padding: 30px 34px;
+        background: var(--bg);
+        color: var(--text);
+        font-family: Inter, -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", "Segoe UI", sans-serif;
+      }
+      .setup-brand {
+        align-items: flex-start;
+        gap: 14px;
+        margin: -2px 0 24px;
+        padding-bottom: 20px;
+        border-bottom: 1px solid var(--border);
+      }
+      .setup-logo {
+        width: 42px;
+        height: 42px;
+        color: #ffffff;
+        background: var(--accent);
+        border: 0;
+        border-radius: 13px;
+        box-shadow: none;
+      }
+      .setup-logo svg {
+        width: 34px;
+        height: 34px;
+        filter: none;
+      }
+      h1 {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin: 0 0 4px;
+        color: var(--text);
+        font-size: 19px;
+        letter-spacing: -0.02em;
+      }
+      .setup-edition {
+        display: inline-flex;
+        align-items: center;
+        height: 20px;
+        padding: 0 7px;
+        color: #ffffff;
+        background: var(--accent);
+        border-radius: 999px;
+        font-size: 10px;
+        font-weight: 700;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+      }
+      .lead {
+        color: var(--text-dim);
+        font-size: 11.5px;
+        line-height: 1.55;
+      }
+      label {
+        color: var(--text);
+        font-size: 12px;
+        font-weight: 650;
+      }
+      .hint,
+      .setup-presets-hint,
+      .setup-preset-sub {
+        color: var(--text-dim);
+      }
+      .setup-presets-hint strong {
+        color: var(--text);
+      }
+      .hint a,
+      .vault-detected {
+        color: var(--accent);
+      }
+      input[type="text"],
+      input[type="password"] {
+        min-height: 38px;
+        background: #ffffff;
+        border-color: var(--border);
+        border-radius: 8px;
+        color: var(--text);
+      }
+      input::placeholder {
+        color: var(--text-faint);
+      }
+      input:focus {
+        border-color: var(--accent);
+        box-shadow: 0 0 0 3px rgba(5, 150, 105, 0.14);
+      }
+      code {
+        color: #047857;
+        background: #e7f7ee;
+        border-radius: 4px;
+        padding: 1px 4px;
+      }
+      .pick-btn {
+        background: #ffffff;
+        border-color: var(--border);
+        border-radius: 8px;
+        color: var(--text-dim);
+      }
+      .pick-btn:hover {
+        background: #eef7f1;
+        border-color: #a9bdaf;
+        color: var(--text);
+      }
+      .divider-text {
+        color: var(--text-faint);
+      }
+      .divider-text::before,
+      .divider-text::after {
+        background: var(--border-soft);
+      }
+      .download-card,
+      .setup-preset {
+        background: #ffffff;
+        border-color: var(--border);
+        color: var(--text);
+        box-shadow: none;
+      }
+      .download-card:hover:not(.disabled):not(.downloading):not(.done),
+      .setup-preset:hover:not(:disabled) {
+        background: #f4faf6;
+        border-color: #8fb7a1;
+        box-shadow: none;
+        transform: none;
+      }
+      .download-card-icon {
+        color: var(--accent);
+        background: #e7f7ee;
+        border-color: #c2dfce;
+      }
+      .setup-preset.recommended {
+        background: #eef8f2;
+        border-color: #8bbda0;
+      }
+      .setup-preset.heavy {
+        border-color: #ccd9cf;
+      }
+      .setup-preset-tag {
+        color: #047857;
+        background: #dff4e8;
+      }
+      .setup-preset-tag.heavy {
+        color: #76501c;
+        background: #f6eddf;
+      }
+      .setup-preset-emoji {
+        min-width: 22px;
+        color: var(--accent);
+        font-size: 9px;
+        font-weight: 800;
+        letter-spacing: 0.08em;
+      }
+      .progress-bar {
+        background: var(--bg-elev-2);
+      }
+      .progress-fill {
+        background: var(--accent);
+      }
+      .actions {
+        border-top-color: var(--border-soft);
+      }
+      .primary {
+        min-width: 118px;
+        background: var(--accent);
+        border: 1px solid var(--accent);
+        border-radius: 8px;
+        color: #ffffff;
+        box-shadow: none;
+      }
+      .primary:hover:not(:disabled) {
+        background: #047857;
+        border-color: #047857;
+      }
     </style>
   </head>
   <body>
     <header class="setup-brand">
       <div class="setup-logo" aria-hidden="true">
         <svg viewBox="0 0 64 64" fill="none">
-          <defs>
-            <radialGradient id="setup-spiral-glow" cx="50%" cy="50%" r="50%">
-              <stop offset="0%" stop-color="#6ee7b7" stop-opacity="0.6" />
-              <stop offset="60%" stop-color="#6ee7b7" stop-opacity="0.12" />
-              <stop offset="100%" stop-color="#6ee7b7" stop-opacity="0" />
-            </linearGradient>
-            <linearGradient id="setup-spiral-stroke" x1="0%" y1="0%" x2="100%" y2="100%">
-              <stop offset="0%" stop-color="#6ee7b7" />
-              <stop offset="50%" stop-color="#bef264" />
-              <stop offset="100%" stop-color="#34d399" />
-            </linearGradient>
-          </defs>
-          <circle cx="32" cy="32" r="30" fill="url(#setup-spiral-glow)" />
           <path
             d="M32 32 m0 0 a3 3 0 0 1 6 0 a6 6 0 0 1 -12 0 a9 9 0 0 1 18 0 a12 12 0 0 1 -24 0 a15 15 0 0 1 30 0 a18 18 0 0 1 -36 0 a21 21 0 0 1 42 0"
-            stroke="url(#setup-spiral-stroke)"
+            stroke="currentColor"
             stroke-width="2.5"
             stroke-linecap="round"
           />
-          <circle cx="32" cy="32" r="2" fill="#6ee7b7" />
+          <circle cx="32" cy="32" r="2" fill="currentColor" />
         </svg>
       </div>
       <div>
-        <h1>Spiral Buddy Green</h1>
+        <h1>Spiral Buddy <span class="setup-edition">Green</span></h1>
         <p class="lead">
-          처음 사용 시 한 번만 설정하면 됩니다. 이 정보는 사용자 디렉토리에 저장되며 외부로 전송되지 않습니다.
+          학습 자료와 기록 공간을 연결해 주세요. 설정은 이 기기에만 저장됩니다.
         </p>
       </div>
     </header>
 
     <div class="field">
-      <label for="api-key">Anthropic API Key</label>
+      <label for="api-key">학습 엔진 연결 키</label>
       <input id="api-key" type="password" placeholder="sk-ant-..." autocomplete="off" />
       <div class="hint">
-        <a id="link-console" data-href="https://console.anthropic.com/settings/keys">console.anthropic.com</a>에서 발급
+        Anthropic API Key · <a id="link-console" data-href="https://console.anthropic.com/settings/keys">console.anthropic.com</a>에서 발급
       </div>
     </div>
 
@@ -366,25 +544,25 @@
         <input id="roadmap-root" type="text" placeholder="/Users/.../iq-phronesis-lab (선택)" />
         <button class="pick-btn" id="pick-roadmap" type="button">선택…</button>
       </div>
-      <div class="hint">이미 학습 자료가 있다면 그 경로를 지정. 비워두면 GitHub Curated (iq-phronesis-lab)만 사용.</div>
+      <div class="hint">이미 학습 자료가 있다면 그 경로를 지정하세요. 비워두면 GitHub 추천 학습 자료(iq-phronesis-lab)를 사용합니다.</div>
 
       <div class="divider-text">또는 코스 프리셋으로 한 번에 받기</div>
 
       <div class="setup-presets" id="setup-presets">
         <button type="button" class="setup-preset recommended" data-preset="thinking-first">
-          <div class="setup-preset-head"><span class="setup-preset-emoji">🧠</span><strong>사고 도구부터</strong><span class="setup-preset-tag">추천</span></div>
+          <div class="setup-preset-head"><span class="setup-preset-emoji">TH</span><strong>사고 도구부터</strong><span class="setup-preset-tag">추천</span></div>
           <div class="setup-preset-sub">Thinking Tools — 모든 판단의 운영체제 (5)</div>
         </button>
         <button type="button" class="setup-preset" data-preset="founder">
-          <div class="setup-preset-head"><span class="setup-preset-emoji">🚀</span><strong>창업가 코스</strong></div>
+          <div class="setup-preset-head"><span class="setup-preset-emoji">FO</span><strong>창업가 코스</strong></div>
           <div class="setup-preset-sub">Thinking Tools · Money · People · Rules (23)</div>
         </button>
         <button type="button" class="setup-preset" data-preset="investor">
-          <div class="setup-preset-head"><span class="setup-preset-emoji">📈</span><strong>투자자 코스</strong></div>
+          <div class="setup-preset-head"><span class="setup-preset-emoji">IN</span><strong>투자자 코스</strong></div>
           <div class="setup-preset-sub">Thinking Tools · Money · Rules · Reading the World (21)</div>
         </button>
         <button type="button" class="setup-preset heavy" data-preset="full">
-          <div class="setup-preset-head"><span class="setup-preset-emoji">🧬</span><strong>전체 · 나선형 완주</strong><span class="setup-preset-tag heavy">무거움</span></div>
+          <div class="setup-preset-head"><span class="setup-preset-emoji">ALL</span><strong>전체 · 나선형 완주</strong><span class="setup-preset-tag heavy">무거움</span></div>
           <div class="setup-preset-sub">6개 레이어 전부 · Synthesis까지 (31)</div>
         </button>
       </div>
@@ -400,7 +578,7 @@
     <div class="error" id="error-msg"></div>
 
     <div class="actions">
-      <button class="primary" id="save-btn" type="button">시작하기</button>
+      <button class="primary" id="save-btn" type="button">Green 시작하기</button>
     </div>
 
     <script src="setup.js"></script>

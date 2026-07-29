@@ -11,6 +11,8 @@ import {
   invalidateNotesCache,
   noteBelongsToRoadmap,
   noteMatchesChapter,
+  DEFAULT_SPIRAL_VAULT_SUBDIR,
+  getSpiralVaultSubDir,
   type SpiralNote,
   type NewNote,
 } from "../src/vault.js";
@@ -29,6 +31,26 @@ import type { Config } from "../src/config.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PKG_ROOT = path.resolve(__dirname, "..");
+
+describe("Green vault location", () => {
+  test("uses the Green-specific default and preserves an explicit workspace sub-dir", () => {
+    const previous = process.env.SPIRAL_VAULT_SUBDIR;
+    try {
+      delete process.env.SPIRAL_VAULT_SUBDIR;
+      assert.equal(DEFAULT_SPIRAL_VAULT_SUBDIR, "spiral-buddy-green");
+      assert.equal(getSpiralVaultSubDir(), "spiral-buddy-green");
+
+      process.env.SPIRAL_VAULT_SUBDIR = "spiral-buddy-green-work";
+      assert.equal(getSpiralVaultSubDir(), "spiral-buddy-green-work");
+
+      process.env.SPIRAL_VAULT_SUBDIR = "   ";
+      assert.equal(getSpiralVaultSubDir(), "spiral-buddy-green");
+    } finally {
+      if (previous === undefined) delete process.env.SPIRAL_VAULT_SUBDIR;
+      else process.env.SPIRAL_VAULT_SUBDIR = previous;
+    }
+  });
+});
 
 // ---------------------------------------------------------------------------
 // tmp dir helpers — every test that touches the FS uses a fresh, unique dir
@@ -62,6 +84,7 @@ function makeNote(overrides: Partial<SpiralNote> = {}): SpiralNote {
     roadmapName: null,
     repo: null,
     date: "2026-01-01",
+    modifiedAt: "2026-01-01T00:00:00.000Z",
     depth: 1,
     tags: [],
     summary: "",
@@ -192,7 +215,7 @@ describe("vault: escapeYaml (via writeNewNote frontmatter)", () => {
 
 // ===========================================================================
 // vault.ts — listSpiralNotes (tmp dir fixture)
-//   reads spiral-buddy-green/ subdir, parses frontmatter, sorts by date desc,
+//   reads spiral-buddy-green/ subdir, parses frontmatter, sorts by actual mtime,
 //   ignores _index.md and .trash/**, supports old + new schema.
 // ===========================================================================
 
@@ -271,6 +294,41 @@ describe("vault: listSpiralNotes", () => {
     // new-schema: title/topic fall back to chapter
     assert.equal(older.title, "01. Older");
     assert.equal(older.topic, "01. Older");
+  });
+
+  test("same-day notes are ordered by file modification time", async () => {
+    const vault = await mkTmp("list-same-day");
+    const spiralRoot = path.join(vault, "spiral-buddy-green");
+    const firstPath = path.join(spiralRoot, "first.md");
+    const lastPath = path.join(spiralRoot, "last.md");
+    await writeRaw(
+      spiralRoot,
+      "first.md",
+      '---\nchapter: "First"\nchapter_id: first.md\ndate: 2026-07-29\n---\nbody',
+    );
+    await writeRaw(
+      spiralRoot,
+      "last.md",
+      '---\nchapter: "Last"\nchapter_id: last.md\ndate: 2026-07-29\n---\nbody',
+    );
+    await fs.utimes(
+      firstPath,
+      new Date("2026-07-29T01:00:00Z"),
+      new Date("2026-07-29T01:00:00Z"),
+    );
+    await fs.utimes(
+      lastPath,
+      new Date("2026-07-29T02:00:00Z"),
+      new Date("2026-07-29T02:00:00Z"),
+    );
+
+    invalidateNotesCache();
+    const notes = await listSpiralNotes(vault);
+    assert.deepEqual(
+      notes.map((note) => note.chapterId),
+      ["last.md", "first.md"],
+    );
+    assert.ok(notes[0]!.modifiedAt > notes[1]!.modifiedAt);
   });
 
   test("old-schema note: repo + roadmapName inferred from roadmap_id; chapterId preserved", async () => {
@@ -511,13 +569,7 @@ describe("roadmap: discoverRoadmaps + loadRoadmapChapters fixture", () => {
     assert.deepEqual(chapters.map((c) => c.order), [0, 1, 2]);
   });
 
-  // GREEN-SPECIFIC BUG/GAP: green's roadmap.ts derives title as
-  //   fmTitle ?? firstHeading ?? basename  — with NO chapter-prefix stripping.
-  // Blue (v0.5.108+) strips "Chapter 2"/"Ch1:" prefixes (stripChapterPrefix);
-  // green never ported that feature, so "Chapter 2 Bar Title" stays verbatim.
-  // Skipped (not weakened) until green adds stripChapterPrefix. See also the
-  // dedicated stripChapterPrefix test below.
-  test.skip("loadRoadmapChapters: title from frontmatter > first H1 > basename; chapter prefix stripped (GREEN MISSING stripChapterPrefix)", async () => {
+  test("loadRoadmapChapters: title from frontmatter > first H1 > basename; chapter prefix stripped", async () => {
     const { root } = await buildRoadmapRepo();
     invalidateRoadmapCaches();
     const [rm] = await discoverRoadmaps(root);
@@ -542,10 +594,7 @@ describe("roadmap: discoverRoadmaps + loadRoadmapChapters fixture", () => {
     assert.equal(foo.preview, "Foo content paragraph here.");
   });
 
-  // GREEN-SPECIFIC BUG/GAP: green has no stripChapterPrefix (Blue v0.5.108+).
-  // Titles keep "Chapter 1 - "/"Ch2: " prefixes. Skipped (not weakened) until
-  // the feature is ported to green's roadmap.ts loadChapterFile title logic.
-  test.skip("stripChapterPrefix: 'Chapter01 -', 'Ch1:' removed but 'Chrome' kept (GREEN MISSING stripChapterPrefix)", async () => {
+  test("stripChapterPrefix: 'Chapter01 -', 'Ch1:' removed but 'Chrome' kept", async () => {
     const root = await mkTmp("rmprefix");
     const repo = path.join(root, "prefixes");
     await fs.mkdir(repo, { recursive: true });
