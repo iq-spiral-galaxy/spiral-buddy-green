@@ -96,7 +96,7 @@ Suggest what the learner should study next. Return JSON only.`;
   const { text } = await completeOnce(client, {
     system: SUGGEST_SYSTEM,
     messages: [{ role: "user", content: userMsg }],
-    maxTokens: 1024,
+    maxTokens: 4096,
   });
 
   const parsed = safeJsonParse(text);
@@ -148,4 +148,3 @@ function isMode(v: unknown): v is SpiralSuggestion["mode"] {
     v === "cross-link"
   );
 }
-

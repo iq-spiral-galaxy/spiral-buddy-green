@@ -1240,9 +1240,9 @@ function registerAiRoutes(app: Hono, config: Config, client: ClaudeClient) {
         completionRule,
     };
     const maxTokensByDepth: Record<string, number> = {
-      concise: 280,
-      medium: 1500,
-      deep: 3200,
+      concise: 2048,
+      medium: 8192,
+      deep: 16000,
     };
 
     const questionBlock = userQuestion
@@ -1263,6 +1263,7 @@ function registerAiRoutes(app: Hono, config: Config, client: ClaudeClient) {
           messages: [{ role: "user", content: userMessage }],
           model: body.model,
           maxTokens,
+          continueOnLength: true,
           onText: async (chunk) => {
             fullResponse += chunk;
             await stream.write(chunk);
@@ -1402,7 +1403,8 @@ function registerAiRoutes(app: Hono, config: Config, client: ClaudeClient) {
             },
           ],
           model: body.model,
-          maxTokens: 700,
+          maxTokens: 4096,
+          continueOnLength: true,
           onText: async (chunk) => {
             fullResponse += chunk;
             await stream.write(chunk);
@@ -1465,7 +1467,7 @@ function registerAiRoutes(app: Hono, config: Config, client: ClaudeClient) {
         system: systemPrompt,
         messages: [{ role: "user", content: userMessage }],
         model: body?.model,
-        maxTokens: 1200,
+        maxTokens: 4096,
         mathOutput: true,
       });
       let refined = text.trim();
@@ -1659,6 +1661,7 @@ function registerSessionRoutes(app: Hono, config: Config, client: ClaudeClient) 
           system: SESSION_SYSTEM,
           messages: session.messages,
           model: session.model,
+          continueOnLength: true,
           onText: async (chunk) => {
             await stream.write(chunk);
             deliveredText += chunk;
@@ -1715,6 +1718,7 @@ function registerSessionRoutes(app: Hono, config: Config, client: ClaudeClient) 
           system: SESSION_SYSTEM,
           messages: session.messages,
           model: session.model,
+          continueOnLength: true,
           onText: async (chunk) => {
             await stream.write(chunk);
             deliveredText += chunk;
